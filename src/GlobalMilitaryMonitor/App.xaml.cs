@@ -1,4 +1,6 @@
+using System.Net.Http;
 using System.Windows;
+using System.Windows.Threading;
 using GlobalMilitaryMonitor.Caching;
 using GlobalMilitaryMonitor.Configuration;
 using GlobalMilitaryMonitor.DataIngestion.Interfaces;
@@ -21,6 +23,11 @@ public partial class App : Application
     {
         base.OnStartup(e);
 
+        // Global exception handlers
+        DispatcherUnhandledException += OnDispatcherUnhandledException;
+        AppDomain.CurrentDomain.UnhandledException += OnUnhandledException;
+        TaskScheduler.UnobservedTaskException += OnUnobservedTaskException;
+
         var services = new ServiceCollection();
         ConfigureServices(services);
         _serviceProvider = services.BuildServiceProvider();
@@ -38,37 +45,60 @@ public partial class App : Application
         mainWindow.Show();
     }
 
+    private void OnDispatcherUnhandledException(object sender, DispatcherUnhandledExceptionEventArgs e)
+    {
+        System.Diagnostics.Debug.WriteLine($"UI Exception: {e.Exception}");
+        e.Handled = true;
+    }
+
+    private void OnUnhandledException(object sender, UnhandledExceptionEventArgs e)
+    {
+        System.Diagnostics.Debug.WriteLine($"Unhandled Exception: {e.ExceptionObject}");
+    }
+
+    private void OnUnobservedTaskException(object? sender, UnobservedTaskExceptionEventArgs e)
+    {
+        System.Diagnostics.Debug.WriteLine($"Task Exception: {e.Exception}");
+        e.SetObserved();
+    }
+
     private static void ConfigureServices(IServiceCollection services)
     {
         // Logging
         services.AddLogging(builder =>
         {
-            builder.SetMinimumLevel(LogLevel.Information);
+            builder.SetMinimumLevel(LogLevel.Debug);
             builder.AddDebug();
         });
 
         // Configuration
         services.AddSingleton<AppSettings>();
 
-        // HTTP Client
-        services.AddHttpClient();
+        // HTTP Client with timeout
+        services.AddSingleton<HttpClient>(_ =>
+        {
+            var client = new HttpClient();
+            client.Timeout = TimeSpan.FromSeconds(15);
+            client.DefaultRequestHeaders.Add("User-Agent", "GlobalMilitaryMonitor/1.0");
+            return client;
+        });
 
         // Caching
         services.AddMemoryCache();
         services.AddSingleton<DataCache>();
 
-        // Data Feed Services
-        services.AddHttpClient<GdeltNewsFeedService>();
-        services.AddHttpClient<RssDefenseNewsFeedService>();
-        services.AddHttpClient<MilitaryAssetTrackingService>();
+        // Data Feed Services - register each as both concrete and IDataFeedService
+        services.AddSingleton<GdeltNewsFeedService>();
+        services.AddSingleton<IDataFeedService>(sp => sp.GetRequiredService<GdeltNewsFeedService>());
 
-        services.AddSingleton<IDataFeedService, GdeltNewsFeedService>(sp =>
-            sp.GetRequiredService<GdeltNewsFeedService>());
-        services.AddSingleton<IDataFeedService, RssDefenseNewsFeedService>(sp =>
-            sp.GetRequiredService<RssDefenseNewsFeedService>());
-        services.AddSingleton<IDataFeedService, ConflictZoneDataService>();
-        services.AddSingleton<IDataFeedService, MilitaryAssetTrackingService>(sp =>
-            sp.GetRequiredService<MilitaryAssetTrackingService>());
+        services.AddSingleton<RssDefenseNewsFeedService>();
+        services.AddSingleton<IDataFeedService>(sp => sp.GetRequiredService<RssDefenseNewsFeedService>());
+
+        services.AddSingleton<ConflictZoneDataService>();
+        services.AddSingleton<IDataFeedService>(sp => sp.GetRequiredService<ConflictZoneDataService>());
+
+        services.AddSingleton<MilitaryAssetTrackingService>();
+        services.AddSingleton<IDataFeedService>(sp => sp.GetRequiredService<MilitaryAssetTrackingService>());
 
         // Data Aggregator
         services.AddSingleton<IDataAggregator, DataAggregator>();

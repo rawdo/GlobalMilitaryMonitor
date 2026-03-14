@@ -25,31 +25,39 @@ public partial class MainWindow : Window
 
     private async void OnLoaded(object sender, RoutedEventArgs e)
     {
-        // Initialize the map
-        _mapController.Initialize(MainMap);
-
-        // Wire up map events
-        _mapController.EventMarkerClicked += OnEventMarkerClicked;
-        _mapController.AssetMarkerClicked += OnAssetMarkerClicked;
-
-        // Wire up ViewModel collection changes to update map markers
-        _viewModel.Events.CollectionChanged += (_, _) =>
+        try
         {
-            _mapController.UpdateEventMarkers(_viewModel.Events);
-        };
+            // Initialize the map
+            _mapController.Initialize(MainMap);
 
-        _viewModel.ConflictZones.CollectionChanged += (_, _) =>
+            // Wire up map events
+            _mapController.EventMarkerClicked += OnEventMarkerClicked;
+            _mapController.AssetMarkerClicked += OnAssetMarkerClicked;
+
+            // Wire up ViewModel collection changes to update map markers
+            _viewModel.Events.CollectionChanged += (_, _) =>
+            {
+                _mapController.UpdateEventMarkers(_viewModel.Events);
+            };
+
+            _viewModel.ConflictZones.CollectionChanged += (_, _) =>
+            {
+                _mapController.UpdateConflictZones(_viewModel.ConflictZones);
+            };
+
+            _viewModel.MilitaryAssets.CollectionChanged += (_, _) =>
+            {
+                _mapController.UpdateMilitaryAssets(_viewModel.MilitaryAssets);
+            };
+
+            // Start data loading
+            await _viewModel.InitializeAsync();
+        }
+        catch (Exception ex)
         {
-            _mapController.UpdateConflictZones(_viewModel.ConflictZones);
-        };
-
-        _viewModel.MilitaryAssets.CollectionChanged += (_, _) =>
-        {
-            _mapController.UpdateMilitaryAssets(_viewModel.MilitaryAssets);
-        };
-
-        // Start data loading
-        await _viewModel.InitializeAsync();
+            System.Diagnostics.Debug.WriteLine($"OnLoaded error: {ex}");
+            _viewModel.StatusText = $"Startup error: {ex.Message}";
+        }
     }
 
     private void OnEventMarkerClicked(object? sender, GeoEvent evt)

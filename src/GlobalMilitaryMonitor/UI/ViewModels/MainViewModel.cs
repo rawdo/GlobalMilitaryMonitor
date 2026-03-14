@@ -197,12 +197,19 @@ public class MainViewModel : INotifyPropertyChanged
 
         try
         {
-            await _aggregator.StartAsync();
-            StatusText = "Connected - receiving live data";
+            // Use a timeout so the UI isn't stuck forever if feeds are slow
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+            await _aggregator.StartAsync(cts.Token);
+            StatusText = $"Connected - {TotalEvents} events, {ConflictZoneCount} zones, {TrackedAssets} assets tracked";
+        }
+        catch (OperationCanceledException)
+        {
+            StatusText = $"Partial load - {TotalEvents} events, {ConflictZoneCount} zones (some feeds timed out)";
         }
         catch (Exception ex)
         {
-            StatusText = $"Error: {ex.Message}";
+            StatusText = $"Loaded with errors: {ex.Message}";
+            System.Diagnostics.Debug.WriteLine($"InitializeAsync error: {ex}");
         }
         finally
         {

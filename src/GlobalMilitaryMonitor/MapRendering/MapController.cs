@@ -1,3 +1,4 @@
+using System.IO;
 using System.Windows;
 using System.Windows.Media;
 using GMap.NET;
@@ -17,6 +18,7 @@ public class MapController
     private readonly ILogger<MapController> _logger;
     private readonly Dictionary<string, GMapMarker> _eventMarkers = new();
     private readonly Dictionary<string, GMapMarker> _assetMarkers = new();
+    private readonly Dictionary<string, GMapMarker> _zoneMarkers = new();
 
     public event EventHandler<GeoEvent>? EventMarkerClicked;
     public event EventHandler<MilitaryAsset>? AssetMarkerClicked;
@@ -30,19 +32,33 @@ public class MapController
     {
         _mapControl = mapControl;
 
-        // Configure the map
-        GMaps.Instance.Mode = AccessMode.ServerAndCache;
-        _mapControl.MapProvider = GMapProviders.OpenStreetMap;
-        _mapControl.Position = new PointLatLng(30.0, 30.0);
-        _mapControl.MinZoom = 2;
-        _mapControl.MaxZoom = 18;
-        _mapControl.Zoom = 3;
-        _mapControl.ShowCenter = false;
-        _mapControl.DragButton = System.Windows.Input.MouseButton.Left;
-        _mapControl.CanDragMap = true;
-        _mapControl.MouseWheelZoomType = MouseWheelZoomType.MousePositionWithoutCenter;
+        try
+        {
+            // Set up tile cache directory
+            var cacheDir = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "GlobalMilitaryMonitor", "MapCache");
+            Directory.CreateDirectory(cacheDir);
 
-        _logger.LogInformation("Map initialized with OpenStreetMap provider");
+            GMaps.Instance.Mode = AccessMode.ServerAndCache;
+
+            _mapControl.MapProvider = GMapProviders.OpenStreetMap;
+            _mapControl.CacheLocation = cacheDir;
+            _mapControl.Position = new PointLatLng(25.0, 30.0);
+            _mapControl.MinZoom = 2;
+            _mapControl.MaxZoom = 18;
+            _mapControl.Zoom = 3;
+            _mapControl.ShowCenter = false;
+            _mapControl.DragButton = System.Windows.Input.MouseButton.Left;
+            _mapControl.CanDragMap = true;
+            _mapControl.MouseWheelZoomType = MouseWheelZoomType.MousePositionWithoutCenter;
+
+            _logger.LogInformation("Map initialized with OpenStreetMap provider, cache at {CacheDir}", cacheDir);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to initialize map");
+        }
     }
 
     public void UpdateEventMarkers(IEnumerable<GeoEvent> events)
@@ -51,20 +67,26 @@ public class MapController
 
         Application.Current.Dispatcher.BeginInvoke(() =>
         {
-            // Remove old event markers
-            foreach (var marker in _eventMarkers.Values)
+            try
             {
-                _mapControl.Markers.Remove(marker);
+                foreach (var marker in _eventMarkers.Values)
+                {
+                    _mapControl.Markers.Remove(marker);
+                }
+                _eventMarkers.Clear();
+
+                foreach (var evt in events)
+                {
+                    if (evt.Latitude == 0 && evt.Longitude == 0) continue;
+
+                    var marker = CreateEventMarker(evt);
+                    _eventMarkers[evt.Id] = marker;
+                    _mapControl.Markers.Add(marker);
+                }
             }
-            _eventMarkers.Clear();
-
-            foreach (var evt in events)
+            catch (Exception ex)
             {
-                if (evt.Latitude == 0 && evt.Longitude == 0) continue;
-
-                var marker = CreateEventMarker(evt);
-                _eventMarkers[evt.Id] = marker;
-                _mapControl.Markers.Add(marker);
+                _logger.LogError(ex, "Error updating event markers");
             }
         });
     }
@@ -75,11 +97,25 @@ public class MapController
 
         Application.Current.Dispatcher.BeginInvoke(() =>
         {
-            // Conflict zones are rendered as circle markers with tooltips
-            foreach (var zone in zones)
+            try
             {
-                var marker = CreateConflictZoneMarker(zone);
-                _mapControl.Markers.Add(marker);
+                // Remove old zone markers first
+                foreach (var marker in _zoneMarkers.Values)
+                {
+                    _mapControl.Markers.Remove(marker);
+                }
+                _zoneMarkers.Clear();
+
+                foreach (var zone in zones)
+                {
+                    var marker = CreateConflictZoneMarker(zone);
+                    _zoneMarkers[zone.Id] = marker;
+                    _mapControl.Markers.Add(marker);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error updating conflict zone markers");
             }
         });
     }
@@ -90,17 +126,24 @@ public class MapController
 
         Application.Current.Dispatcher.BeginInvoke(() =>
         {
-            foreach (var marker in _assetMarkers.Values)
+            try
             {
-                _mapControl.Markers.Remove(marker);
-            }
-            _assetMarkers.Clear();
+                foreach (var marker in _assetMarkers.Values)
+                {
+                    _mapControl.Markers.Remove(marker);
+                }
+                _assetMarkers.Clear();
 
-            foreach (var asset in assets)
+                foreach (var asset in assets)
+                {
+                    var marker = CreateAssetMarker(asset);
+                    _assetMarkers[asset.Id] = marker;
+                    _mapControl.Markers.Add(marker);
+                }
+            }
+            catch (Exception ex)
             {
-                var marker = CreateAssetMarker(asset);
-                _assetMarkers[asset.Id] = marker;
-                _mapControl.Markers.Add(marker);
+                _logger.LogError(ex, "Error updating military asset markers");
             }
         });
     }
@@ -125,6 +168,7 @@ public class MapController
             _mapControl.Markers.Clear();
             _eventMarkers.Clear();
             _assetMarkers.Clear();
+            _zoneMarkers.Clear();
         });
     }
 
