@@ -75,11 +75,18 @@ public class MapController
                 }
                 _eventMarkers.Clear();
 
+                // Many events share a country-level location; fan them out slightly so they don't stack exactly.
+                var perLocation = new Dictionary<(double, double), int>();
                 foreach (var evt in events)
                 {
-                    if (evt.Latitude == 0 && evt.Longitude == 0) continue;
+                    if (!evt.HasLocation) continue;
 
-                    var marker = CreateEventMarker(evt);
+                    var key = (evt.Latitude!.Value, evt.Longitude!.Value);
+                    var n = perLocation[key] = perLocation.GetValueOrDefault(key) + 1;
+                    var distance = n > 1 ? Math.Sqrt(n) * 0.6 : 0;
+                    var position = new PointLatLng(key.Item1 + Math.Sin(n * 2.4) * distance, key.Item2 + Math.Cos(n * 2.4) * distance);
+
+                    var marker = CreateEventMarker(evt, position);
                     _eventMarkers[evt.Id] = marker;
                     _mapControl.Markers.Add(marker);
                 }
@@ -172,13 +179,12 @@ public class MapController
         });
     }
 
-    private GMapMarker CreateEventMarker(GeoEvent evt)
+    private GMapMarker CreateEventMarker(GeoEvent evt, PointLatLng position)
     {
-        var position = new PointLatLng(evt.Latitude, evt.Longitude);
         var marker = new GMapMarker(position);
 
         var markerElement = CreateEventMarkerVisual(evt);
-        markerElement.ToolTip = $"{evt.Title}\n{evt.Category} | {evt.Severity}\n{evt.Timestamp:g}\nSource: {evt.Source}";
+        markerElement.ToolTip = $"{evt.Title}\n{evt.Category} | {evt.Severity}\n{evt.Timestamp:g} UTC\nSource: {evt.Source}\nLocation: {evt.Country} (approximate)";
         markerElement.Tag = evt;
         markerElement.MouseLeftButtonDown += (s, e) =>
         {
@@ -216,7 +222,7 @@ public class MapController
             Fill = new SolidColorBrush(color),
             Stroke = new SolidColorBrush(Color.FromArgb(160, color.R, color.G, color.B)),
             StrokeThickness = 2,
-            ToolTip = $"CONFLICT ZONE: {zone.Name}\n{zone.Description}\nIntensity: {zone.Intensity}\nParties: {string.Join(", ", zone.InvolvedParties)}"
+            ToolTip = $"HOTSPOT: {zone.Name}\n{zone.Description}\nIntensity: {zone.Intensity}\nReported by: {string.Join(", ", zone.Sources)}"
         };
 
         marker.Shape = ellipse;
@@ -231,7 +237,7 @@ public class MapController
         var marker = new GMapMarker(position);
 
         var markerElement = CreateAssetMarkerVisual(asset);
-        markerElement.ToolTip = $"{asset.Name}\nType: {asset.Type}\nCountry: {asset.Country}\nStatus: {asset.Status}\nSource: {asset.Source}";
+        markerElement.ToolTip = $"{asset.Name}\nType: {asset.Type}\nRegistered: {asset.Country}\n{asset.Status}\nLast seen: {asset.LastSeen:HH:mm:ss} UTC\nSource: {asset.Source}";
         markerElement.Tag = asset;
         markerElement.MouseLeftButtonDown += (s, e) =>
         {

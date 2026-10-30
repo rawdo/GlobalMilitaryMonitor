@@ -3,16 +3,16 @@
 // marker taps are sent back as {type: 'event', id}.
 
 import { colors, severityColor, categoryIcon, assetIcon } from '../theme';
-import type { ConflictZone, GeoEvent, MilitaryAsset } from '../lib/types';
+import type { GeoEvent, Hotspot, MilitaryAsset } from '../lib/types';
 
 export interface MapData {
   events: GeoEvent[];
-  zones: ConflictZone[];
+  hotspots: Hotspot[];
   assets: MilitaryAsset[];
 }
 
 /** Strips the data down to what the map page needs. */
-export function toMapPayload({ events, zones, assets }: MapData): string {
+export function toMapPayload({ events, hotspots, assets }: MapData): string {
   return JSON.stringify({
     events: events
       .filter((e) => e.latitude != null && e.longitude != null)
@@ -25,18 +25,19 @@ export function toMapPayload({ events, zones, assets }: MapData): string {
         icon: categoryIcon[e.category],
         alert: e.isAlert,
       })),
-    zones: zones.map((z) => ({
+    zones: hotspots.map((z) => ({
       lat: z.centerLatitude,
       lon: z.centerLongitude,
       r: z.radiusKm * 1000,
       name: z.name,
+      text: z.description,
       color: severityColor[z.intensity],
     })),
     assets: assets.map((a) => ({
       lat: a.latitude,
       lon: a.longitude,
       name: a.name,
-      status: a.status,
+      status: `${a.country} · ${a.status}`,
       icon: assetIcon[a.type],
     })),
   });
@@ -87,7 +88,7 @@ export const MAP_HTML = `<!doctype html>
     zoneLayer.clearLayers(); assetLayer.clearLayers(); eventLayer.clearLayers();
     data.zones.forEach(function (z) {
       L.circle([z.lat, z.lon], { radius: z.r, color: z.color, weight: 1, fillOpacity: 0.18 })
-        .bindPopup('<b>' + esc(z.name) + '</b>').addTo(zoneLayer);
+        .bindPopup('<b>Hotspot: ' + esc(z.name) + '</b><br>' + esc(z.text)).addTo(zoneLayer);
     });
     data.assets.forEach(function (a) {
       L.marker([a.lat, a.lon], { icon: L.divIcon({ className: 'asset', html: a.icon, iconSize: [20, 20] }) })

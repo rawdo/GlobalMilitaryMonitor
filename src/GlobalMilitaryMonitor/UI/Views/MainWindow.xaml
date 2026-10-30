@@ -72,7 +72,7 @@
                     <Border Background="{StaticResource CardBackgroundBrush}" CornerRadius="4"
                             Padding="12,4" Margin="4,0">
                         <StackPanel Orientation="Horizontal">
-                            <TextBlock Text="Conflict Zones: " Foreground="{StaticResource SecondaryTextBrush}"
+                            <TextBlock Text="Hotspots: " Foreground="{StaticResource SecondaryTextBrush}"
                                        FontSize="12" />
                             <TextBlock Text="{Binding ConflictZoneCount}" Foreground="{StaticResource WarningOrangeBrush}"
                                        FontSize="12" FontWeight="Bold" />
@@ -81,7 +81,7 @@
                     <Border Background="{StaticResource CardBackgroundBrush}" CornerRadius="4"
                             Padding="12,4" Margin="4,0">
                         <StackPanel Orientation="Horizontal">
-                            <TextBlock Text="Assets Tracked: " Foreground="{StaticResource SecondaryTextBrush}"
+                            <TextBlock Text="Military Aircraft: " Foreground="{StaticResource SecondaryTextBrush}"
                                        FontSize="12" />
                             <TextBlock Text="{Binding TrackedAssets}" Foreground="{StaticResource SuccessGreenBrush}"
                                        FontSize="12" FontWeight="Bold" />
@@ -154,13 +154,13 @@
                             <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
                                 <Rectangle Width="10" Height="10" Fill="#0096FF" RadiusX="2" RadiusY="2"
                                            Margin="0,0,6,0" />
-                                <TextBlock Text="Military Asset" FontSize="10"
+                                <TextBlock Text="Military aircraft (live)" FontSize="10"
                                            Foreground="{StaticResource PrimaryTextBrush}" />
                             </StackPanel>
                             <StackPanel Orientation="Horizontal" Margin="0,2">
                                 <Ellipse Width="10" Height="10" Fill="#D5000060" Stroke="#D50000" StrokeThickness="1"
                                          Margin="0,0,6,0" />
-                                <TextBlock Text="Conflict Zone" FontSize="10"
+                                <TextBlock Text="Hotspot (live reports)" FontSize="10"
                                            Foreground="{StaticResource PrimaryTextBrush}" />
                             </StackPanel>
                         </StackPanel>
@@ -404,7 +404,8 @@
                 <TextBlock Grid.Column="0" Text="{Binding StatusText}" FontSize="11"
                            Foreground="{StaticResource SecondaryTextBrush}" VerticalAlignment="Center" />
                 <StackPanel Grid.Column="1" Orientation="Horizontal">
-                    <TextBlock Text="Data sources: GDELT | RSS Feeds | OSINT | ADS-B" FontSize="10"
+                    <TextBlock Text="{Binding SourceSummary}" FontSize="10"
+                               ToolTip="{Binding SourceDetails}" ToolTipService.ShowDuration="60000"
                                Foreground="{StaticResource SecondaryTextBrush}" VerticalAlignment="Center"
                                Margin="0,0,16,0" />
                     <TextBlock Text="{Binding LastUpdate, StringFormat='UTC: {0:yyyy-MM-dd HH:mm:ss}'}"

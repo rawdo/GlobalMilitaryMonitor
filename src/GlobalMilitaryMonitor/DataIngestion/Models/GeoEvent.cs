@@ -28,9 +28,12 @@ public class GeoEvent
     public string Id { get; set; } = Guid.NewGuid().ToString();
     public string Title { get; set; } = string.Empty;
     public string Description { get; set; } = string.Empty;
-    public double Latitude { get; set; }
-    public double Longitude { get; set; }
-    public DateTime Timestamp { get; set; } = DateTime.UtcNow;
+    /// <summary>Null when no location could be derived; such events are listed but not mapped.</summary>
+    public double? Latitude { get; set; }
+    public double? Longitude { get; set; }
+    public bool HasLocation => Latitude.HasValue && Longitude.HasValue;
+    /// <summary>Publication time reported by the source (UTC).</summary>
+    public DateTime Timestamp { get; set; }
     public EventCategory Category { get; set; }
     public SeverityLevel Severity { get; set; }
     public string Source { get; set; } = string.Empty;

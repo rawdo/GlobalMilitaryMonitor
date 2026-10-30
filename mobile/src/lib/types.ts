@@ -39,7 +39,11 @@ export interface GeoEvent {
   isAlert: boolean;
 }
 
-export interface ConflictZone {
+/**
+ * An activity hotspot: a place where live reports cluster. Derived from the current events
+ * (see lib/hotspots.ts), never hand-entered.
+ */
+export interface Hotspot {
   id: string;
   name: string;
   description: string;
@@ -47,7 +51,12 @@ export interface ConflictZone {
   centerLongitude: number;
   radiusKm: number;
   intensity: SeverityLevel;
-  involvedParties: string[];
+  reportCount: number;
+  highSeverityCount: number;
+  /** Outlets reporting from this hotspot, most reports first. */
+  sources: string[];
+  /** ISO timestamp of the newest report. */
+  lastUpdated: string;
 }
 
 export type AssetType =
@@ -60,7 +69,9 @@ export type AssetType =
   | 'Satellite'
   | 'Other';
 
+/** A live military aircraft position from ADS-B. */
 export interface MilitaryAsset {
+  /** ICAO 24-bit address (hex). */
   id: string;
   name: string;
   type: AssetType;
@@ -71,6 +82,8 @@ export interface MilitaryAsset {
   speedKnots: number | null;
   status: string;
   source: string;
+  /** ISO timestamp of the position report. */
+  lastSeen: string;
 }
 
 export interface FeedStatus {

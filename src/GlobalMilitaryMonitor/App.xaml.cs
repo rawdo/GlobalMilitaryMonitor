@@ -1,3 +1,4 @@
+using System.Net;
 using System.Net.Http;
 using System.Windows;
 using System.Windows.Threading;
@@ -5,6 +6,7 @@ using GlobalMilitaryMonitor.Caching;
 using GlobalMilitaryMonitor.Configuration;
 using GlobalMilitaryMonitor.DataIngestion.Interfaces;
 using GlobalMilitaryMonitor.DataIngestion.Services;
+using GlobalMilitaryMonitor.DataIngestion.Sources;
 using GlobalMilitaryMonitor.EventProcessing;
 using GlobalMilitaryMonitor.MapRendering;
 using GlobalMilitaryMonitor.UI.ViewModels;
@@ -74,11 +76,11 @@ public partial class App : Application
         // Configuration
         services.AddSingleton<AppSettings>();
 
-        // HTTP Client with timeout
+        // HTTP client shared by all feeds
         services.AddSingleton<HttpClient>(_ =>
         {
-            var client = new HttpClient();
-            client.Timeout = TimeSpan.FromSeconds(15);
+            var handler = new HttpClientHandler { AutomaticDecompression = DecompressionMethods.All };
+            var client = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(15) };
             client.DefaultRequestHeaders.Add("User-Agent", "GlobalMilitaryMonitor/1.0");
             return client;
         });
@@ -87,18 +89,18 @@ public partial class App : Application
         services.AddMemoryCache();
         services.AddSingleton<DataCache>();
 
-        // Data Feed Services - register each as both concrete and IDataFeedService
-        services.AddSingleton<GdeltNewsFeedService>();
-        services.AddSingleton<IDataFeedService>(sp => sp.GetRequiredService<GdeltNewsFeedService>());
-
-        services.AddSingleton<RssDefenseNewsFeedService>();
-        services.AddSingleton<IDataFeedService>(sp => sp.GetRequiredService<RssDefenseNewsFeedService>());
-
-        services.AddSingleton<ConflictZoneDataService>();
-        services.AddSingleton<IDataFeedService>(sp => sp.GetRequiredService<ConflictZoneDataService>());
-
-        services.AddSingleton<MilitaryAssetTrackingService>();
-        services.AddSingleton<IDataFeedService>(sp => sp.GetRequiredService<MilitaryAssetTrackingService>());
+        // Data feeds: every live source in the catalog
+        services.AddSingleton<IDataFeedService, GdeltFeedService>();
+        foreach (var source in SourceCatalog.Rss)
+        {
+            services.AddSingleton<IDataFeedService>(sp => new RssFeedService(
+                source, sp.GetRequiredService<HttpClient>(), sp.GetRequiredService<ILogger<RssFeedService>>()));
+        }
+        foreach (var source in SourceCatalog.Aircraft)
+        {
+            services.AddSingleton<IDataFeedService>(sp => new MilitaryAircraftFeedService(
+                source, sp.GetRequiredService<HttpClient>(), sp.GetRequiredService<ILogger<MilitaryAircraftFeedService>>()));
+        }
 
         // Data Aggregator
         services.AddSingleton<IDataAggregator, DataAggregator>();

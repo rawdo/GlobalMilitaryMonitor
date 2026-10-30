@@ -23,7 +23,7 @@ public class MilitaryAsset
     public double? Heading { get; set; }
     public double? SpeedKnots { get; set; }
     public string Status { get; set; } = string.Empty;
-    public DateTime LastSeen { get; set; } = DateTime.UtcNow;
+    public DateTime LastSeen { get; set; }
     public string Source { get; set; } = string.Empty;
     public Dictionary<string, string> Metadata { get; set; } = new();
 

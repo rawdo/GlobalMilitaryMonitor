@@ -34,21 +34,10 @@ public partial class MainWindow : Window
             _mapController.EventMarkerClicked += OnEventMarkerClicked;
             _mapController.AssetMarkerClicked += OnAssetMarkerClicked;
 
-            // Wire up ViewModel collection changes to update map markers
-            _viewModel.Events.CollectionChanged += (_, _) =>
-            {
-                _mapController.UpdateEventMarkers(_viewModel.Events);
-            };
-
-            _viewModel.ConflictZones.CollectionChanged += (_, _) =>
-            {
-                _mapController.UpdateConflictZones(_viewModel.ConflictZones);
-            };
-
-            _viewModel.MilitaryAssets.CollectionChanged += (_, _) =>
-            {
-                _mapController.UpdateMilitaryAssets(_viewModel.MilitaryAssets);
-            };
+            // Redraw each map layer once per bulk update from the view model
+            _viewModel.EventsChanged += (_, _) => _mapController.UpdateEventMarkers(_viewModel.Events);
+            _viewModel.HotspotsChanged += (_, _) => _mapController.UpdateConflictZones(_viewModel.ConflictZones);
+            _viewModel.AssetsChanged += (_, _) => _mapController.UpdateMilitaryAssets(_viewModel.MilitaryAssets);
 
             // Start data loading
             await _viewModel.InitializeAsync();
@@ -78,8 +67,9 @@ public partial class MainWindow : Window
             $"Country: {asset.Country}\n" +
             $"Position: {asset.Latitude:F2}, {asset.Longitude:F2}\n" +
             $"Status: {asset.Status}\n" +
+            $"Last seen: {asset.LastSeen:yyyy-MM-dd HH:mm:ss} UTC\n" +
             $"Source: {asset.Source}",
-            "Military Asset Details",
+            "Military Aircraft (live ADS-B)",
             MessageBoxButton.OK,
             MessageBoxImage.Information);
     }

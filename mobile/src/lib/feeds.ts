@@ -13,7 +13,8 @@ import {
   type Location,
 } from './classify';
 import type { Source } from './sources';
-import { SEVERITY_RANK, type GeoEvent } from './types';
+import { parseAircraft } from './aircraft';
+import { SEVERITY_RANK, type GeoEvent, type MilitaryAsset } from './types';
 
 const USER_AGENT = 'GlobalMilitaryMonitor-Mobile/1.0';
 const TIMEOUT_MS = 15_000;
@@ -35,7 +36,7 @@ export interface Validators {
 }
 
 export type FetchResult =
-  | { changed: true; events: GeoEvent[]; headers: Headers; validators: Validators }
+  | { changed: true; events: GeoEvent[]; assets: MilitaryAsset[]; headers: Headers; validators: Validators }
   | { changed: false; headers: Headers; validators: Validators };
 
 function buildEvent(
@@ -75,17 +76,16 @@ export function parseGdelt(body: string): GeoEvent[] {
     // GDELT sometimes answers with a plain-text message (e.g. its rate-limit notice).
     throw new Error(body.slice(0, 120) || 'Invalid response');
   }
-  return (json.articles ?? [])
-    .filter((a) => a.title)
-    .map((a) =>
-      buildEvent(
-        stripHtml(a.title!),
-        `Reported by ${a.domain ?? 'unknown source'}`,
-        parseGdeltDate(a.seendate),
-        a.domain ?? 'GDELT',
-        a.url ?? '',
-      ),
+  const events: GeoEvent[] = [];
+  for (const a of json.articles ?? []) {
+    const timestamp = parseGdeltDate(a.seendate);
+    // Articles without a usable date are skipped rather than stamped with the fetch time.
+    if (!a.title || !timestamp) continue;
+    events.push(
+      buildEvent(stripHtml(a.title), `Reported by ${a.domain ?? 'unknown source'}`, timestamp, a.domain ?? 'GDELT', a.url ?? ''),
     );
+  }
+  return events;
 }
 
 // --- RSS ---------------------------------------------------------------------
@@ -121,9 +121,9 @@ export function parseRss(xml: string, source: RssSource): GeoEvent[] {
       typeof link === 'object' && link && '@_href' in link
         ? String((link as { '@_href': string })['@_href'])
         : textOf(Array.isArray(link) ? link[0] : link);
-    const timestamp =
-      parseFeedDate(textOf(item.pubDate ?? item.published ?? item.updated ?? item['dc:date'])) ??
-      new Date().toISOString();
+    // Items without a usable date are skipped rather than stamped with the fetch time.
+    const timestamp = parseFeedDate(textOf(item.pubDate ?? item.published ?? item.updated ?? item['dc:date']));
+    if (!timestamp) continue;
 
     events.push(
       buildEvent(
@@ -160,7 +160,8 @@ export async function fetchSource(source: Source, validators: Validators): Promi
     const body = await res.text();
     return {
       changed: true,
-      events: source.kind === 'gdelt' ? parseGdelt(body) : parseRss(body, source),
+      events: source.kind === 'gdelt' ? parseGdelt(body) : source.kind === 'rss' ? parseRss(body, source) : [],
+      assets: source.kind === 'aircraft' ? parseAircraft(body, source.name) : [],
       headers: res.headers,
       validators: {
         etag: res.headers.get('etag') ?? undefined,

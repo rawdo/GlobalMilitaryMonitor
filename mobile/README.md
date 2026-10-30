@@ -7,19 +7,20 @@ Expo (React Native + TypeScript) and Expo Router.
 
 ## Features
 
-- **Map** — dark world map (Leaflet + Esri tiles) with conflict zones, geolocated events colour-coded by
-  severity (alerts pulse), and known military deployments. Tap an event for details.
+- **Map** — dark world map (Leaflet + Esri tiles) with activity hotspots, geolocated events colour-coded by
+  severity (alerts pulse), and live military aircraft. Tap an event for details.
 - **Feed** — live news from 35 sources (GDELT plus 34 defense, regional and world-news RSS feeds; see
   below), with search and category filters.
 - **Alerts** — high and critical severity events, with a badge count on the tab.
-- **Intel** — live status of every data source (last check, next check, polling interval), active
-  conflict zones and tracked assets.
+- **Intel** — live status of every data source (last check, next check, polling interval), activity
+  hotspots computed from the last 24 h of reports, and live military aircraft (ADS-B).
 - Each source refreshes independently, as soon as that source can have new content (see below). Pull to
   refresh forces an immediate check, and the last data is cached for instant start-up and offline viewing.
 
 ## Data sources
 
-35 live sources, plus built-in reference data. Every URL below was checked to return a current feed.
+35 live news sources plus 2 live military-aircraft sources. Every URL below was checked to return current data.
+The desktop app uses the same catalog (`src/GlobalMilitaryMonitor/DataIngestion/Sources/SourceCatalog.cs`).
 
 | # | Source | Group | Feed | Checked every* | Filtered |
 |---|---|---|---|---|---|
@@ -58,14 +59,28 @@ Expo (React Native + TypeScript) and Expo Router.
 | 33 | [The Guardian World](https://www.theguardian.com/world) | World news | `theguardian.com/world/rss` | 1 min (source cache) | military topics only |
 | 34 | [UN News: Peace & Security](https://news.un.org/en/news/topic/peace-and-security) | World news | `news.un.org/feed/subscribe/en/news/topic/peace-and-security/feed/rss.xml` | 2 min (no cache info from source) | military topics only |
 | 35 | [The Record](https://therecord.media/) | Cyber | `therecord.media/feed` | 2 min (no cache info from source) | all items |
+| 36 | [adsb.lol](https://adsb.lol/) | Military aircraft | `api.adsb.lol/v2/mil` | 30s (minimum interval; `no-store`) | live positions ≤ 2 min old |
+| 37 | [adsb.fi](https://adsb.fi/) | Military aircraft | `opendata.adsb.fi/api/v2/mil` | 30s (minimum interval; `no-store`) | live positions ≤ 2 min old |
 
 \* Steady-state intervals derived from each source's `Cache-Control` / `Expires` headers when they were added
 (clamped to 30 s – 15 min; 2 min when a source gives no cache info). The app re-reads the headers on every
 response, so if a source changes its caching the interval follows. "Military topics only" means items must
 match the military keyword filter; specialist defense outlets keep everything.
 
-Built-in reference data (`src/lib/seed.ts`, static): 12 active conflict zones and 14 known military
-deployments, both ported from the desktop app.
+The two ADS-B networks use different receivers, so their aircraft are merged by ICAO address (keeping the
+freshest position); the country shown is the state of registry for that address block.
+
+### Data integrity
+
+Nothing in the app is mock, seed or placeholder data:
+
+- Events come only from the live sources; items without a publication date are skipped, not stamped "now".
+- Locations are inferred from place names in the text (country/city level, so approximate). Events with no
+  recognisable place are listed but not mapped. Kyiv Independent, Ukrainska Pravda and NK News default to
+  their country.
+- Hotspots are computed from the live events (3+ located reports in the last 24 h), not hand-entered zones.
+- Aircraft are live ADS-B positions; positions are not cached between launches. Warships are not shown
+  because no free live source of naval positions exists.
 
 How refresh scheduling works (`src/lib/schedule.ts`):
 
@@ -107,7 +122,7 @@ npx eas-cli@latest build --platform ios       # needs an Apple Developer account
 ```bash
 npm run typecheck
 npx expo lint
-npm test          # unit tests for classification and refresh scheduling
+npm test          # unit tests: classification, scheduling, hotspots, ADS-B parsing
 ```
 
 ## Code layout
@@ -125,20 +140,23 @@ src/
 │   ├── schedule.ts       # per-source next-check calculation from cache / rate-limit headers
 │   ├── feeds.ts          # conditional fetching + GDELT/RSS parsing
 │   ├── aggregator.ts     # dedupes and sorts events from all sources
-│   └── seed.ts           # conflict zones and known deployments (OSINT reference data)
+│   ├── aircraft.ts       # ADS-B parsing and merging across networks
+│   ├── icao.ts           # ICAO address block -> country of registration
+│   └── hotspots.ts       # hotspots derived from live events
 ├── state/MonitorProvider.tsx  # per-source timers, caching, refresh
 └── theme.ts              # colours matching the desktop dark theme
 ```
 
 ## Notes and limitations
 
-- Categories, severity and locations are inferred from keywords, as in the desktop app, so expect
-  occasional misclassifications. Unlike the desktop app, events with no recognisable location are shown in
-  the feed but not placed on the map at random coordinates. Severity "Critical" now requires a weapons
-  context, so articles about nuclear power no longer raise alerts.
+- Categories, severity and locations are inferred from keywords (identically in the desktop app), so expect
+  occasional misclassifications. Severity "Critical" requires a weapons context, so articles about nuclear
+  power don't raise alerts.
 - GDELT returns HTTP 429 when its per-IP limit is exceeded (common on shared networks/VPNs). The app backs
   off automatically and the Intel tab shows the status; the other feeds keep working.
-- Asset positions are static OSINT reference data. Live ADS-B tracking needs an API key from a provider and
-  isn't wired up yet.
+- Only aircraft that the ADS-B networks flag as military and that broadcast a position appear; many military
+  aircraft fly with transponders off.
+- Curated conflict-event databases (ACLED, UCDP) need registration/API tokens, so hotspots are derived from
+  news reports instead.
 - The web build (`npx expo start --web`) renders, but browsers block the cross-origin RSS/GDELT requests
   (CORS), so live data only works in the native apps.

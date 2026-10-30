@@ -3,13 +3,13 @@
 import type { Location } from './classify';
 import type { ScheduleLimits } from './schedule';
 
-export type SourceGroup = 'Aggregator' | 'Defense' | 'Conflict regions' | 'World news' | 'Cyber';
+export type SourceGroup = 'Aggregator' | 'Defense' | 'Conflict regions' | 'World news' | 'Cyber' | 'Military aircraft';
 
 export interface Source extends ScheduleLimits {
   id: string;
   name: string;
   group: SourceGroup;
-  kind: 'gdelt' | 'rss';
+  kind: 'gdelt' | 'rss' | 'aircraft';
   url: string;
   homepage: string;
   /** Drop items that don't mention military topics. Off for specialist defense outlets, where everything is relevant. */
@@ -121,4 +121,27 @@ export const SOURCES: Source[] = [
   // Cyber operations and state-sponsored hacking.
   // Dedicated cyber and national security outlet, so its items aren't keyword-filtered.
   rss('Cyber', 'the-record', 'The Record', 'https://therecord.media/feed', 'https://therecord.media/', { militaryOnly: false }),
+
+  // Free, keyless ADS-B aggregators publishing aircraft flagged as military. They use different
+  // receiver networks, so both are polled and merged by ICAO address. Positions change continuously
+  // and the APIs send no-store, so they are polled at the 30s floor.
+  ...(
+    [
+      ['adsb-lol', 'adsb.lol (military aircraft)', 'https://api.adsb.lol/v2/mil', 'https://adsb.lol/'],
+      ['adsb-fi', 'adsb.fi (military aircraft)', 'https://opendata.adsb.fi/api/v2/mil', 'https://adsb.fi/'],
+    ] as const
+  ).map(
+    ([id, name, url, homepage]): Source => ({
+      id,
+      name,
+      group: 'Military aircraft',
+      kind: 'aircraft',
+      url,
+      homepage,
+      militaryOnly: false,
+      minIntervalMs: 30 * SECOND,
+      maxIntervalMs: 5 * MINUTE,
+      hardMinGapMs: 5 * SECOND,
+    }),
+  ),
 ];

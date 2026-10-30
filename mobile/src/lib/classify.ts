@@ -190,9 +190,9 @@ export function parseFeedDate(value: string | undefined): string | null {
 }
 
 /** Parses GDELT "seendate" values such as 20261030T081500Z. */
-export function parseGdeltDate(value: string | undefined): string {
+export function parseGdeltDate(value: string | undefined): string | null {
   const m = value?.match(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z$/);
-  if (!m) return new Date().toISOString();
+  if (!m) return null;
   return new Date(Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6])).toISOString();
 }
 

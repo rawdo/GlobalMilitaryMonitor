@@ -2,8 +2,7 @@ namespace GlobalMilitaryMonitor.Configuration;
 
 public class AppSettings
 {
-    public int DefaultRefreshIntervalSeconds { get; set; } = 45;
-    public int MaxEventsToDisplay { get; set; } = 200;
+    public int MaxEventsToDisplay { get; set; } = 400;
     public int MaxAlertsToDisplay { get; set; } = 50;
     public double DefaultMapLatitude { get; set; } = 30.0;
     public double DefaultMapLongitude { get; set; } = 30.0;

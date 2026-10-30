@@ -1,19 +1,27 @@
 import { useEffect, useState } from 'react';
 import { Pressable, RefreshControl, SectionList, StyleSheet, Text, View } from 'react-native';
-import type { ConflictZone, FeedStatus, MilitaryAsset } from '../../lib/types';
+import type { FeedStatus, Hotspot, MilitaryAsset } from '../../lib/types';
 import { useMonitor } from '../../state/MonitorProvider';
 import { assetIcon, colors, severityColor, timeAgo } from '../../theme';
 
 type Row =
-  | { kind: 'zone'; zone: ConflictZone }
+  | { kind: 'zone'; zone: Hotspot }
   | { kind: 'asset'; asset: MilitaryAsset }
   | { kind: 'feed'; feed: FeedStatus }
-  | { kind: 'summary'; feeds: FeedStatus[]; expanded: boolean; toggle: () => void };
+  | { kind: 'summary'; feeds: FeedStatus[]; expanded: boolean; toggle: () => void }
+  | { kind: 'more'; label: string; toggle: () => void }
+  | { kind: 'empty'; text: string };
+
+const COLLAPSED_AIRCRAFT = 10;
 
 export default function IntelScreen() {
-  const { zones, assets, feeds, updatedAt, refreshing, refresh } = useMonitor();
+  const { hotspots, assets, feeds, updatedAt, refreshing, refresh } = useMonitor();
   const now = useNow(5000);
   const [expanded, setExpanded] = useState(false);
+  const [allAircraft, setAllAircraft] = useState(false);
+  // Most recently seen first.
+  const aircraft = [...assets].sort((a, b) => b.lastSeen.localeCompare(a.lastSeen));
+  const shownAircraft = allAircraft ? aircraft : aircraft.slice(0, COLLAPSED_AIRCRAFT);
 
   // Collapsed, only sources with problems are listed under the summary.
   const shownFeeds = expanded ? feeds : feeds.filter((f) => f.ok === false);
@@ -25,8 +33,29 @@ export default function IntelScreen() {
         ...shownFeeds.map((feed): Row => ({ kind: 'feed', feed })),
       ],
     },
-    { title: `ACTIVE CONFLICT ZONES (${zones.length})`, data: zones.map((zone) => ({ kind: 'zone', zone })) },
-    { title: `TRACKED ASSETS (${assets.length})`, data: assets.map((asset) => ({ kind: 'asset', asset })) },
+    {
+      title: `HOTSPOTS (${hotspots.length}) · from the last 24h of reports`,
+      data: hotspots.length
+        ? hotspots.map((zone): Row => ({ kind: 'zone', zone }))
+        : [{ kind: 'empty', text: 'No place has 3+ located reports in the last 24 hours yet.' }],
+    },
+    {
+      title: `MILITARY AIRCRAFT (${assets.length}) · live ADS-B`,
+      data: [
+        ...(assets.length
+          ? shownAircraft.map((asset): Row => ({ kind: 'asset', asset }))
+          : [{ kind: 'empty', text: 'No live positions from the ADS-B sources right now.' } as Row]),
+        ...(aircraft.length > COLLAPSED_AIRCRAFT
+          ? [
+              {
+                kind: 'more',
+                label: allAircraft ? 'Show fewer ▲' : `Show all ${aircraft.length} ▼`,
+                toggle: () => setAllAircraft((v) => !v),
+              } as Row,
+            ]
+          : []),
+      ],
+    },
   ];
 
   return (
@@ -40,7 +69,7 @@ export default function IntelScreen() {
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={colors.accent} />}
       ListFooterComponent={
         <Text style={styles.footer}>
-          Each source is checked as soon as it says new content can exist (its HTTP cache lifetime or rate limit). Zones and asset positions are approximate OSINT reference data, not live tracking.
+          All data is live. Hotspots are computed from the reports above; event locations are approximate (country or city level, inferred from the text). Aircraft are those the ADS-B networks flag as military; warships are not tracked because no free live source exists.
         </Text>
       }
     />
@@ -76,7 +105,9 @@ function IntelRow({ row, now }: { row: Row; now: number }) {
             </Text>
           </View>
           <Text style={styles.body}>{row.zone.description}</Text>
-          <Text style={styles.meta}>{row.zone.involvedParties.join(' · ')}</Text>
+          <Text style={styles.meta}>
+            Reported by {row.zone.sources.join(' · ')} · latest {timeAgo(row.zone.lastUpdated, now)}
+          </Text>
         </View>
       );
     case 'asset':
@@ -87,12 +118,23 @@ function IntelRow({ row, now }: { row: Row; now: number }) {
           </Text>
           <Text style={styles.body}>
             {row.asset.country} · {row.asset.status}
+            {row.asset.heading != null ? ` · heading ${Math.round(row.asset.heading)}°` : ''}
           </Text>
-          {row.asset.speedKnots ? (
-            <Text style={styles.meta}>
-              {row.asset.speedKnots} kn · heading {row.asset.heading}° · {row.asset.source}
-            </Text>
-          ) : null}
+          <Text style={styles.meta}>
+            Seen {timeAgo(row.asset.lastSeen, now)} · {row.asset.source}
+          </Text>
+        </View>
+      );
+    case 'more':
+      return (
+        <Pressable onPress={row.toggle} style={({ pressed }) => [styles.card, pressed && { opacity: 0.7 }]}>
+          <Text style={styles.toggle}>{row.label}</Text>
+        </Pressable>
+      );
+    case 'empty':
+      return (
+        <View style={styles.card}>
+          <Text style={styles.meta}>{row.text}</Text>
         </View>
       );
     case 'summary': {
@@ -111,7 +153,7 @@ function IntelRow({ row, now }: { row: Row; now: number }) {
             <Text style={styles.toggle}>{row.expanded ? 'Hide ▲' : 'Show all ▼'}</Text>
           </View>
           <Text style={styles.meta}>
-            {events} events from {row.feeds.length} sources · each checked as soon as it can have new content
+            {events} items from {row.feeds.length} sources · each checked as soon as it can have new content
           </Text>
         </Pressable>
       );

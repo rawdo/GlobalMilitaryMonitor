@@ -11,19 +11,23 @@ import {
 } from 'react';
 import { AppState } from 'react-native';
 import { mergeEvents } from '../lib/aggregator';
+import { mergeAircraft } from '../lib/aircraft';
 import { fetchSource, HttpError, type Validators } from '../lib/feeds';
+import { analyzeHotspots } from '../lib/hotspots';
 import { scheduleAfterFailure, scheduleAfterSuccess } from '../lib/schedule';
-import { CONFLICT_ZONES, KNOWN_DEPLOYMENTS } from '../lib/seed';
 import { SOURCES, type Source } from '../lib/sources';
-import type { ConflictZone, FeedStatus, GeoEvent, MilitaryAsset } from '../lib/types';
+import type { FeedStatus, GeoEvent, Hotspot, MilitaryAsset } from '../lib/types';
 
-const CACHE_KEY = 'gmm:sources:v2';
+const CACHE_KEY = 'gmm:sources:v3';
+/** Aircraft positions older than this are hidden (e.g. while both ADS-B sources are failing). */
+const MAX_AIRCRAFT_AGE_MS = 5 * 60 * 1000;
 
 // Each source is polled on its own timer, as soon as that source says new content can exist
 // (see lib/schedule.ts), rather than all sources on one shared interval.
 
 interface SourceState {
   events: GeoEvent[];
+  assets: MilitaryAsset[];
   validators: Validators;
   ok: boolean | null;
   error?: string;
@@ -38,7 +42,9 @@ type SourceStates = Record<string, SourceState>;
 
 interface MonitorState {
   events: GeoEvent[];
-  zones: ConflictZone[];
+  /** Derived from the current events; see lib/hotspots.ts. */
+  hotspots: Hotspot[];
+  /** Live military aircraft merged across ADS-B sources. */
   assets: MilitaryAsset[];
   feeds: FeedStatus[];
   /** ISO timestamp of the most recent successful check of any source. */
@@ -56,6 +62,7 @@ const initialState = (): SourceStates =>
       s.id,
       {
         events: [],
+        assets: [],
         validators: {},
         ok: null,
         lastChecked: null,
@@ -129,7 +136,7 @@ export function MonitorProvider({ children }: { children: ReactNode }) {
           const now = Date.now();
           next = scheduleAfterSuccess(result.headers, source);
           update(source.id, {
-            ...(result.changed ? { events: result.events, lastChanged: now } : null),
+            ...(result.changed ? { events: result.events, assets: result.assets, lastChanged: now } : null),
             validators: result.validators,
             ok: true,
             error: undefined,
@@ -201,12 +208,15 @@ export function MonitorProvider({ children }: { children: ReactNode }) {
     return () => sub.remove();
   }, [clearTimer, schedule]);
 
-  // Persist events and cache validators so the next launch starts with data.
+  // Persist news events and cache validators so the next launch starts with data. Aircraft positions
+  // are not persisted: they are only meaningful live.
   useEffect(() => {
     const cache = Object.fromEntries(
       Object.entries(sources).map(([id, s]) => [
         id,
-        { events: s.events, validators: s.validators, lastChanged: s.lastChanged },
+        s.assets.length
+          ? { events: [], validators: {}, lastChanged: null }
+          : { events: s.events, validators: s.validators, lastChanged: s.lastChanged },
       ]),
     );
     AsyncStorage.setItem(CACHE_KEY, JSON.stringify(cache)).catch(() => {});
@@ -224,11 +234,16 @@ export function MonitorProvider({ children }: { children: ReactNode }) {
   const value = useMemo<MonitorState>(() => {
     const states = SOURCES.map((s) => sources[s.id]);
     const events = mergeEvents(states.map((s) => s.events));
+    // Reference time for ageing data: the most recent check of any source (advances every ~30s).
+    const now = Math.max(0, ...states.map((s) => s.lastChecked ?? 0));
+    const assets = mergeAircraft(states.map((s) => s.assets)).filter(
+      (a) => now - Date.parse(a.lastSeen) < MAX_AIRCRAFT_AGE_MS,
+    );
     const checked = states.filter((s) => s.ok).map((s) => s.lastChecked ?? 0);
     return {
       events,
-      zones: CONFLICT_ZONES,
-      assets: KNOWN_DEPLOYMENTS,
+      hotspots: analyzeHotspots(events, now),
+      assets,
       feeds: SOURCES.map((source, i) => ({
         id: source.id,
         name: source.name,
@@ -236,7 +251,7 @@ export function MonitorProvider({ children }: { children: ReactNode }) {
         url: source.url,
         homepage: source.homepage,
         ok: states[i].ok,
-        count: states[i].events.length,
+        count: states[i].events.length + states[i].assets.length,
         error: states[i].error,
         lastChecked: toIso(states[i].lastChecked),
         lastChanged: toIso(states[i].lastChanged),

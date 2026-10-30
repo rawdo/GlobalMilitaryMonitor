@@ -1,229 +1,250 @@
-using System.Collections.Concurrent;
 using GlobalMilitaryMonitor.DataIngestion.Interfaces;
 using GlobalMilitaryMonitor.DataIngestion.Models;
+using GlobalMilitaryMonitor.DataIngestion.Processing;
 using Microsoft.Extensions.Logging;
 
 namespace GlobalMilitaryMonitor.DataIngestion.Services;
 
+/// <summary>
+/// Polls every source on its own schedule (as soon as that source says new content can exist) and
+/// merges the results: deduplicated events, hotspots derived from them, and aircraft merged across
+/// ADS-B networks.
+/// </summary>
 public class DataAggregator : IDataAggregator, IDisposable
 {
+    public const int MaxEvents = 400;
+
+    private sealed class FeedState
+    {
+        public required IDataFeedService Feed { get; init; }
+        public required SourceStatus Status { get; init; }
+        public IReadOnlyList<GeoEvent> Events { get; set; } = Array.Empty<GeoEvent>();
+        public IReadOnlyList<MilitaryAsset> Assets { get; set; } = Array.Empty<MilitaryAsset>();
+        public DateTime LastRequest { get; set; } = DateTime.MinValue;
+        public SemaphoreSlim Gate { get; } = new(1, 1);
+        public CancellationTokenSource? Wake { get; set; }
+    }
+
     private readonly ILogger<DataAggregator> _logger;
-    private readonly ConcurrentDictionary<string, IDataFeedService> _feeds = new();
-    private readonly ConcurrentDictionary<string, CancellationTokenSource> _feedTimers = new();
-    private readonly List<GeoEvent> _events = new();
-    private readonly List<ConflictZone> _conflictZones = new();
-    private readonly List<MilitaryAsset> _militaryAssets = new();
+    private readonly List<FeedState> _feeds = new();
+    private readonly HashSet<string> _alertedIds = new();
     private readonly object _lock = new();
-    private CancellationTokenSource? _globalCts;
+    private IReadOnlyList<GeoEvent> _events = Array.Empty<GeoEvent>();
+    private IReadOnlyList<ConflictZone> _hotspots = Array.Empty<ConflictZone>();
+    private IReadOnlyList<MilitaryAsset> _assets = Array.Empty<MilitaryAsset>();
+    private CancellationTokenSource? _cts;
     private bool _disposed;
 
-    public event EventHandler<IEnumerable<GeoEvent>>? EventsUpdated;
-    public event EventHandler<IEnumerable<ConflictZone>>? ConflictZonesUpdated;
-    public event EventHandler<IEnumerable<MilitaryAsset>>? MilitaryAssetsUpdated;
+    public event EventHandler<IReadOnlyList<GeoEvent>>? EventsUpdated;
+    public event EventHandler<IReadOnlyList<ConflictZone>>? ConflictZonesUpdated;
+    public event EventHandler<IReadOnlyList<MilitaryAsset>>? MilitaryAssetsUpdated;
     public event EventHandler<GeoEvent>? AlertTriggered;
-
-    public IReadOnlyList<GeoEvent> CurrentEvents
-    {
-        get { lock (_lock) return _events.ToList().AsReadOnly(); }
-    }
-
-    public IReadOnlyList<ConflictZone> CurrentConflictZones
-    {
-        get { lock (_lock) return _conflictZones.ToList().AsReadOnly(); }
-    }
-
-    public IReadOnlyList<MilitaryAsset> CurrentMilitaryAssets
-    {
-        get { lock (_lock) return _militaryAssets.ToList().AsReadOnly(); }
-    }
+    public event EventHandler<IReadOnlyList<SourceStatus>>? SourcesUpdated;
 
     public DataAggregator(ILogger<DataAggregator> logger)
     {
         _logger = logger;
     }
 
-    public void RegisterFeed(IDataFeedService feed)
+    public IReadOnlyList<GeoEvent> CurrentEvents { get { lock (_lock) return _events; } }
+    public IReadOnlyList<ConflictZone> CurrentConflictZones { get { lock (_lock) return _hotspots; } }
+    public IReadOnlyList<MilitaryAsset> CurrentMilitaryAssets { get { lock (_lock) return _assets; } }
+
+    public IReadOnlyList<SourceStatus> SourceStatuses
     {
-        if (_feeds.TryAdd(feed.FeedName, feed))
-        {
-            _logger.LogInformation("Registered data feed: {FeedName}", feed.FeedName);
-        }
+        get { lock (_lock) return _feeds.Select(f => f.Status).ToList(); }
     }
 
-    public void UnregisterFeed(string feedName)
+    public void RegisterFeed(IDataFeedService feed)
     {
-        if (_feeds.TryRemove(feedName, out _))
+        lock (_lock)
         {
-            if (_feedTimers.TryRemove(feedName, out var cts))
+            if (_feeds.Any(f => f.Feed.FeedName == feed.FeedName)) return;
+            _feeds.Add(new FeedState
             {
-                cts.Cancel();
-                cts.Dispose();
-            }
-            _logger.LogInformation("Unregistered data feed: {FeedName}", feedName);
+                Feed = feed,
+                Status = new SourceStatus { Name = feed.FeedName, Group = feed.Group, Url = feed.Url },
+            });
         }
+        _logger.LogInformation("Registered data feed: {FeedName}", feed.FeedName);
     }
 
     public async Task StartAsync(CancellationToken cancellationToken = default)
     {
-        _globalCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        // The loops outlive the caller's (startup timeout) token; StopAsync / Dispose end them.
+        _cts = new CancellationTokenSource();
         _logger.LogInformation("Starting data aggregator with {Count} feeds", _feeds.Count);
 
-        // Initial fetch from all feeds
-        await RefreshAllAsync(_globalCts.Token);
+        var loops = _feeds.Select(f => Task.Run(() => RunFeedLoopAsync(f, _cts.Token))).ToList();
+        _ = Task.WhenAll(loops);
 
-        // Start periodic refresh for each feed
-        foreach (var feed in _feeds.Values)
+        // Return once every source has had its first attempt (or the caller gives up waiting).
+        while (_feeds.Any(f => f.Status.LastChecked is null))
         {
-            StartFeedRefreshLoop(feed, _globalCts.Token);
+            await Task.Delay(250, cancellationToken);
         }
     }
 
     public Task StopAsync()
     {
-        _globalCts?.Cancel();
-        foreach (var cts in _feedTimers.Values)
-        {
-            cts.Cancel();
-            cts.Dispose();
-        }
-        _feedTimers.Clear();
+        _cts?.Cancel();
         _logger.LogInformation("Data aggregator stopped");
         return Task.CompletedTask;
     }
 
     public async Task RefreshAllAsync(CancellationToken cancellationToken = default)
     {
-        var tasks = _feeds.Values
-            .Where(f => f.IsEnabled)
-            .Select(f => RefreshFeedAsync(f, cancellationToken));
-
-        await Task.WhenAll(tasks);
+        var token = _cts?.Token ?? cancellationToken;
+        await Task.WhenAll(_feeds.Select(f => PollAsync(f, token)));
     }
 
-    private void StartFeedRefreshLoop(IDataFeedService feed, CancellationToken cancellationToken)
+    private async Task RunFeedLoopAsync(FeedState state, CancellationToken cancellationToken)
     {
-        var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        _feedTimers[feed.FeedName] = cts;
-
-        _ = Task.Run(async () =>
+        while (!cancellationToken.IsCancellationRequested)
         {
-            while (!cts.Token.IsCancellationRequested)
+            var delay = (state.Status.NextCheck ?? DateTime.UtcNow) - DateTime.UtcNow;
+            using var wake = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            state.Wake = wake;
+            try
             {
-                try
-                {
-                    await Task.Delay(feed.RefreshInterval, cts.Token);
-                    if (feed.IsEnabled)
-                    {
-                        await RefreshFeedAsync(feed, cts.Token);
-                    }
-                }
-                catch (OperationCanceledException)
-                {
-                    break;
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Error in refresh loop for {FeedName}", feed.FeedName);
-                    await Task.Delay(TimeSpan.FromSeconds(10), cts.Token);
-                }
+                if (delay > TimeSpan.Zero) await Task.Delay(delay, wake.Token);
             }
-        }, cts.Token);
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                // Rescheduled (e.g. by a manual refresh): recompute the delay.
+                continue;
+            }
+            catch (OperationCanceledException)
+            {
+                break;
+            }
+
+            try
+            {
+                await PollAsync(state, cancellationToken);
+            }
+            catch (OperationCanceledException)
+            {
+                break;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Unexpected error polling {FeedName}", state.Feed.FeedName);
+                state.Status.NextCheck = DateTime.UtcNow.AddMinutes(1);
+            }
+        }
     }
 
-    private async Task RefreshFeedAsync(IDataFeedService feed, CancellationToken cancellationToken)
+    private async Task PollAsync(FeedState state, CancellationToken cancellationToken)
     {
+        if (!state.Feed.IsEnabled) return;
+        // A poll already in flight for this source satisfies the request.
+        if (!await state.Gate.WaitAsync(0, cancellationToken)) return;
         try
         {
-            _logger.LogDebug("Refreshing feed: {FeedName}", feed.FeedName);
+            var sinceLast = DateTime.UtcNow - state.LastRequest;
+            if (sinceLast < state.Feed.HardMinGap)
+            {
+                state.Status.NextCheck = state.LastRequest + state.Feed.HardMinGap;
+                return;
+            }
 
-            var eventsTask = feed.FetchEventsAsync(cancellationToken);
-            var zonesTask = feed.FetchConflictZonesAsync(cancellationToken);
-            var assetsTask = feed.FetchMilitaryAssetsAsync(cancellationToken);
-
-            await Task.WhenAll(eventsTask, zonesTask, assetsTask);
-
-            var newEvents = (await eventsTask).ToList();
-            var newZones = (await zonesTask).ToList();
-            var newAssets = (await assetsTask).ToList();
-
-            bool eventsChanged = false;
-            bool zonesChanged = false;
-            bool assetsChanged = false;
+            state.LastRequest = DateTime.UtcNow;
+            var result = await state.Feed.FetchAsync(cancellationToken);
+            var now = DateTime.UtcNow;
 
             lock (_lock)
             {
-                if (newEvents.Count > 0)
+                if (result.Success && result.Changed)
                 {
-                    // Merge events, avoiding duplicates by title+source
-                    var existingKeys = _events.Select(e => $"{e.Title}|{e.Source}").ToHashSet();
-                    var uniqueNew = newEvents.Where(e => !existingKeys.Contains($"{e.Title}|{e.Source}")).ToList();
-
-                    if (uniqueNew.Count > 0)
-                    {
-                        _events.AddRange(uniqueNew);
-                        // Keep only the latest 500 events
-                        if (_events.Count > 500)
-                        {
-                            var sorted = _events.OrderByDescending(e => e.Timestamp).Take(500).ToList();
-                            _events.Clear();
-                            _events.AddRange(sorted);
-                        }
-                        eventsChanged = true;
-
-                        // Trigger alerts for high-severity events
-                        foreach (var evt in uniqueNew.Where(e => e.IsAlert))
-                        {
-                            AlertTriggered?.Invoke(this, evt);
-                        }
-                    }
+                    state.Events = result.Events;
+                    state.Assets = result.Assets;
+                    state.Status.LastChanged = now;
                 }
-
-                if (newZones.Count > 0)
-                {
-                    _conflictZones.Clear();
-                    _conflictZones.AddRange(newZones);
-                    zonesChanged = true;
-                }
-
-                if (newAssets.Count > 0)
-                {
-                    _militaryAssets.Clear();
-                    _militaryAssets.AddRange(newAssets);
-                    assetsChanged = true;
-                }
+                // On failure the last good items are kept: stale news beats an empty screen.
+                state.Status.Ok = result.Success;
+                state.Status.Error = result.Error;
+                state.Status.ItemCount = state.Events.Count + state.Assets.Count;
+                state.Status.LastChecked = now;
+                state.Status.NextCheck = now + result.Next.Delay;
+                state.Status.Schedule = result.Next.Reason;
             }
 
-            if (eventsChanged)
-                EventsUpdated?.Invoke(this, CurrentEvents);
-            if (zonesChanged)
-                ConflictZonesUpdated?.Invoke(this, CurrentConflictZones);
-            if (assetsChanged)
-                MilitaryAssetsUpdated?.Invoke(this, CurrentMilitaryAssets);
-
-            _logger.LogDebug("Feed {FeedName} refreshed: {Events} events, {Zones} zones, {Assets} assets",
-                feed.FeedName, newEvents.Count, newZones.Count, newAssets.Count);
+            Publish(result.Success && result.Changed, now);
         }
-        catch (OperationCanceledException)
+        finally
         {
-            // Expected during shutdown
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error refreshing feed: {FeedName}", feed.FeedName);
+            state.Gate.Release();
+            try
+            {
+                state.Wake?.Cancel();
+            }
+            catch (ObjectDisposedException)
+            {
+                // The loop already moved on to a new wait.
+            }
         }
     }
+
+    private void Publish(bool dataChanged, DateTime now)
+    {
+        IReadOnlyList<GeoEvent> events;
+        IReadOnlyList<ConflictZone> hotspots;
+        IReadOnlyList<MilitaryAsset> assets;
+        List<GeoEvent> newAlerts;
+        IReadOnlyList<SourceStatus> statuses;
+
+        lock (_lock)
+        {
+            if (dataChanged)
+            {
+                _events = MergeEvents(_feeds.Select(f => f.Events));
+                _hotspots = HotspotAnalyzer.Analyze(_events, now);
+                _assets = MergeAssets(_feeds.Select(f => f.Assets));
+            }
+            events = _events;
+            hotspots = _hotspots;
+            assets = _assets;
+            newAlerts = _events.Where(e => e.IsAlert && _alertedIds.Add(e.Id)).ToList();
+            statuses = _feeds.Select(f => f.Status).ToList();
+        }
+
+        if (dataChanged)
+        {
+            EventsUpdated?.Invoke(this, events);
+            ConflictZonesUpdated?.Invoke(this, hotspots);
+            MilitaryAssetsUpdated?.Invoke(this, assets);
+            foreach (var alert in newAlerts.OrderBy(e => e.Timestamp)) AlertTriggered?.Invoke(this, alert);
+        }
+        SourcesUpdated?.Invoke(this, statuses);
+    }
+
+    /// <summary>Dedupes by normalised title (the same story often arrives via several outlets), newest first.</summary>
+    public static IReadOnlyList<GeoEvent> MergeEvents(IEnumerable<IReadOnlyList<GeoEvent>> groups)
+    {
+        var seen = new HashSet<string>();
+        return groups
+            .SelectMany(g => g)
+            .Where(e => seen.Add(TextClassifier.NormalizeTitle(e.Title)))
+            .OrderByDescending(e => e.Timestamp)
+            .Take(MaxEvents)
+            .ToList();
+    }
+
+    /// <summary>Merges aircraft reported by several networks, keeping the freshest position of each.</summary>
+    public static IReadOnlyList<MilitaryAsset> MergeAssets(IEnumerable<IReadOnlyList<MilitaryAsset>> groups) =>
+        groups
+            .SelectMany(g => g)
+            .GroupBy(a => a.Id)
+            .Select(g => g.MaxBy(a => a.LastSeen)!)
+            .ToList();
 
     public void Dispose()
     {
         if (_disposed) return;
         _disposed = true;
-        _globalCts?.Cancel();
-        _globalCts?.Dispose();
-        foreach (var cts in _feedTimers.Values)
-        {
-            cts.Cancel();
-            cts.Dispose();
-        }
+        _cts?.Cancel();
+        _cts?.Dispose();
         GC.SuppressFinalize(this);
     }
 }

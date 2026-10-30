@@ -6,7 +6,7 @@ import { useMonitor } from '../../state/MonitorProvider';
 import { colors, severityColor, timeAgo } from '../../theme';
 
 export default function MapScreen() {
-  const { events, zones, assets, updatedAt, refreshing, refresh } = useMonitor();
+  const { events, hotspots, assets, updatedAt, refreshing, refresh } = useMonitor();
   const alerts = events.filter((e) => e.isAlert).length;
   const onSelectEvent = useCallback((id: string) => router.push({ pathname: '/event/[id]', params: { id } }), []);
 
@@ -15,8 +15,8 @@ export default function MapScreen() {
       <View style={styles.stats}>
         <Stat label="EVENTS" value={events.length} />
         <Stat label="ALERTS" value={alerts} color={alerts ? colors.alert : undefined} />
-        <Stat label="ZONES" value={zones.length} />
-        <Stat label="ASSETS" value={assets.length} />
+        <Stat label="HOTSPOTS" value={hotspots.length} />
+        <Stat label="AIRCRAFT" value={assets.length} />
         <Pressable style={styles.updated} onPress={refresh} hitSlop={8}>
           {refreshing ? (
             <ActivityIndicator size="small" color={colors.accent} />
@@ -25,7 +25,7 @@ export default function MapScreen() {
           )}
         </Pressable>
       </View>
-      <WorldMap events={events} zones={zones} assets={assets} onSelectEvent={onSelectEvent} />
+      <WorldMap events={events} hotspots={hotspots} assets={assets} onSelectEvent={onSelectEvent} />
       <View style={styles.legend} pointerEvents="none">
         {(['Critical', 'High', 'Medium', 'Low'] as const).map((s) => (
           <View key={s} style={styles.legendRow}>

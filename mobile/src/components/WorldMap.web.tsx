@@ -8,10 +8,10 @@ interface Props extends MapData {
   onSelectEvent: (id: string) => void;
 }
 
-export function WorldMap({ events, zones, assets, onSelectEvent }: Props) {
+export function WorldMap({ events, hotspots, assets, onSelectEvent }: Props) {
   const ref = useRef<HTMLIFrameElement>(null);
   const [ready, setReady] = useState(false);
-  const payload = useMemo(() => toMapPayload({ events, zones, assets }), [events, zones, assets]);
+  const payload = useMemo(() => toMapPayload({ events, hotspots, assets }), [events, hotspots, assets]);
 
   useEffect(() => {
     const onMessage = (e: MessageEvent) => {

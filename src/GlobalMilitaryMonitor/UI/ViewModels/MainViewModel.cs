@@ -45,6 +45,27 @@ public class MainViewModel : INotifyPropertyChanged
     public ObservableCollection<ConflictZone> ConflictZones { get; } = new();
     public ObservableCollection<MilitaryAsset> MilitaryAssets { get; } = new();
     public ObservableCollection<GeoEvent> TimelineEvents { get; } = new();
+    public ObservableCollection<SourceStatus> Sources { get; } = new();
+
+    /// <summary>Raised (on the UI thread) after each bulk update, so the map redraws once per update.</summary>
+    public event EventHandler? EventsChanged;
+    public event EventHandler? HotspotsChanged;
+    public event EventHandler? AssetsChanged;
+
+    private string _sourceSummary = "Connecting to sources…";
+    public string SourceSummary
+    {
+        get => _sourceSummary;
+        set { _sourceSummary = value; OnPropertyChanged(); }
+    }
+
+    private string _sourceDetails = string.Empty;
+    /// <summary>One line per source (status, item count, polling interval) for the status bar tooltip.</summary>
+    public string SourceDetails
+    {
+        get => _sourceDetails;
+        set { _sourceDetails = value; OnPropertyChanged(); }
+    }
 
     private string _searchText = string.Empty;
     public string SearchText
@@ -188,6 +209,7 @@ public class MainViewModel : INotifyPropertyChanged
         _aggregator.ConflictZonesUpdated += OnConflictZonesUpdated;
         _aggregator.MilitaryAssetsUpdated += OnMilitaryAssetsUpdated;
         _aggregator.AlertTriggered += OnAlertTriggered;
+        _aggregator.SourcesUpdated += OnSourcesUpdated;
     }
 
     public async Task InitializeAsync()
@@ -200,11 +222,11 @@ public class MainViewModel : INotifyPropertyChanged
             // Use a timeout so the UI isn't stuck forever if feeds are slow
             using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
             await _aggregator.StartAsync(cts.Token);
-            StatusText = $"Connected - {TotalEvents} events, {ConflictZoneCount} zones, {TrackedAssets} assets tracked";
+            StatusText = $"Connected - {TotalEvents} events, {ConflictZoneCount} hotspots, {TrackedAssets} military aircraft";
         }
         catch (OperationCanceledException)
         {
-            StatusText = $"Partial load - {TotalEvents} events, {ConflictZoneCount} zones (some feeds timed out)";
+            StatusText = $"Partial load - {TotalEvents} events so far (some sources are still responding)";
         }
         catch (Exception ex)
         {
@@ -237,47 +259,57 @@ public class MainViewModel : INotifyPropertyChanged
         }
     }
 
-    private void OnEventsUpdated(object? sender, IEnumerable<GeoEvent> events)
+    private void OnEventsUpdated(object? sender, IReadOnlyList<GeoEvent> events)
     {
         _dispatcher.BeginInvoke(() =>
         {
-            Events.Clear();
-            foreach (var evt in events.OrderByDescending(e => e.Timestamp).Take(_settings.MaxEventsToDisplay))
-            {
-                Events.Add(evt);
-            }
-
+            Replace(Events, events.Take(_settings.MaxEventsToDisplay));
             TotalEvents = Events.Count;
             LastUpdate = DateTime.UtcNow;
             ApplyFilters();
             UpdateTimeline();
+            EventsChanged?.Invoke(this, EventArgs.Empty);
         });
     }
 
-    private void OnConflictZonesUpdated(object? sender, IEnumerable<ConflictZone> zones)
+    private void OnConflictZonesUpdated(object? sender, IReadOnlyList<ConflictZone> hotspots)
     {
         _dispatcher.BeginInvoke(() =>
         {
-            ConflictZones.Clear();
-            foreach (var zone in zones)
-            {
-                ConflictZones.Add(zone);
-            }
+            Replace(ConflictZones, hotspots);
             ConflictZoneCount = ConflictZones.Count;
+            HotspotsChanged?.Invoke(this, EventArgs.Empty);
         });
     }
 
-    private void OnMilitaryAssetsUpdated(object? sender, IEnumerable<MilitaryAsset> assets)
+    private void OnMilitaryAssetsUpdated(object? sender, IReadOnlyList<MilitaryAsset> assets)
     {
         _dispatcher.BeginInvoke(() =>
         {
-            MilitaryAssets.Clear();
-            foreach (var asset in assets)
-            {
-                MilitaryAssets.Add(asset);
-            }
+            Replace(MilitaryAssets, assets);
             TrackedAssets = MilitaryAssets.Count;
+            AssetsChanged?.Invoke(this, EventArgs.Empty);
         });
+    }
+
+    private void OnSourcesUpdated(object? sender, IReadOnlyList<SourceStatus> sources)
+    {
+        _dispatcher.BeginInvoke(() =>
+        {
+            Replace(Sources, sources);
+            var live = sources.Count(s => s.Ok == true);
+            var failing = sources.Count(s => s.Ok == false);
+            SourceSummary = $"Sources: {live}/{sources.Count} live" + (failing > 0 ? $", {failing} failing" : string.Empty);
+            SourceDetails = string.Join(Environment.NewLine, sources.Select(s =>
+                $"{(s.Ok switch { true => "●", false => "✖", null => "…" })} {s.Name} [{s.Group}] — " +
+                (s.Ok == false ? s.Error : $"{s.ItemCount} items") + $" — every {s.Schedule}"));
+        });
+    }
+
+    private static void Replace<T>(ObservableCollection<T> collection, IEnumerable<T> items)
+    {
+        collection.Clear();
+        foreach (var item in items) collection.Add(item);
     }
 
     private void OnAlertTriggered(object? sender, GeoEvent alert)
@@ -309,11 +341,7 @@ public class MainViewModel : INotifyPropertyChanged
 
         var filtered = _eventProcessor.FilterEvents(Events, criteria);
 
-        FilteredEvents.Clear();
-        foreach (var evt in filtered.Take(_settings.MaxEventsToDisplay))
-        {
-            FilteredEvents.Add(evt);
-        }
+        Replace(FilteredEvents, filtered.Take(_settings.MaxEventsToDisplay));
     }
 
     private void UpdateTimeline()
