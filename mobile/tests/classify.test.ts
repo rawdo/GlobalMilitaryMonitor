@@ -29,6 +29,7 @@ test('assessSeverity', () => {
   assert.equal(assessSeverity('ICBM test detected'), 'Critical');
   assert.equal(assessSeverity('Threat of nuclear strike raised'), 'Critical');
   assert.equal(assessSeverity('New nuclear power plant opens'), 'Low');
+  assert.equal(assessSeverity('Navy orders new nuclear attack submarine'), 'Medium'); // not Critical
   assert.equal(assessSeverity('Invasion fears grow'), 'High');
   assert.equal(assessSeverity('Military exercise begins'), 'Medium');
   assert.equal(assessSeverity('Ministers meet'), 'Low');

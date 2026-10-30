@@ -39,8 +39,9 @@ public static class TextClassifier
     }
 
     // "nuclear" alone is too broad (power plants, energy policy), so Critical needs a weapons context.
+    // "Nuclear attack submarine" is a vessel class, not an attack.
     private static readonly Regex CriticalRegex = new(
-        @"\b(icbm|wmd|warheads?|nuclear (test|strike|attack|weapons?|threat|missile|war|launch))",
+        @"\b(icbm|wmd|warheads?|nuclear (test|strike|attack(?! submarine)|weapons?|threat|missile|war|launch))",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
     public static SeverityLevel AssessSeverity(string text)

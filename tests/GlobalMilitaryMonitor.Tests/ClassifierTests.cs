@@ -26,6 +26,7 @@ public class ClassifierTests
     [InlineData("ICBM test detected", SeverityLevel.Critical)]
     [InlineData("Threat of nuclear strike raised", SeverityLevel.Critical)]
     [InlineData("New nuclear power plant opens", SeverityLevel.Low)]
+    [InlineData("Navy orders new nuclear attack submarine", SeverityLevel.Medium)] // not Critical
     [InlineData("Invasion fears grow", SeverityLevel.High)]
     [InlineData("Military exercise begins", SeverityLevel.Medium)]
     [InlineData("Ministers meet", SeverityLevel.Low)]

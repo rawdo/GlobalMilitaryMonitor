@@ -26,7 +26,8 @@ export function categorize(text: string): EventCategory {
 }
 
 // "nuclear" alone is too broad (power plants, energy policy), so Critical needs a weapons context.
-const CRITICAL_RE = /\b(icbm|wmd|warheads?|nuclear (test|strike|attack|weapons?|threat|missile|war|launch))/i;
+// "Nuclear attack submarine" is a vessel class, not an attack.
+const CRITICAL_RE = /\b(icbm|wmd|warheads?|nuclear (test|strike|attack(?! submarine)|weapons?|threat|missile|war|launch))/i;
 
 export function assessSeverity(text: string): SeverityLevel {
   const lower = text.toLowerCase();

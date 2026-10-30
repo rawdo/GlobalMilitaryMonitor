@@ -12,13 +12,22 @@
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#1A1A2E",
+        "backgroundColor": "#04080A",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
-      "package": "com.globalmilitarymonitor.app"
+      "package": "com.globalmilitarymonitor.app",
+      "versionCode": 1,
+      "permissions": [
+        "android.permission.INTERNET"
+      ],
+      "blockedPermissions": [
+        "android.permission.SYSTEM_ALERT_WINDOW",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -26,10 +35,29 @@
     "plugins": [
       "expo-router",
       "expo-web-browser",
-      "expo-font",
-      "expo-splash-screen"
+      [
+        "expo-font",
+        {
+          "fonts": [
+            "./node_modules/@expo-google-fonts/rajdhani/500Medium/Rajdhani_500Medium.ttf",
+            "./node_modules/@expo-google-fonts/rajdhani/600SemiBold/Rajdhani_600SemiBold.ttf",
+            "./node_modules/@expo-google-fonts/rajdhani/700Bold/Rajdhani_700Bold.ttf",
+            "./node_modules/@expo-google-fonts/jetbrains-mono/400Regular/JetBrainsMono_400Regular.ttf",
+            "./node_modules/@expo-google-fonts/jetbrains-mono/700Bold/JetBrainsMono_700Bold.ttf"
+          ]
+        }
+      ],
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#04080A",
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 180,
+          "resizeMode": "contain"
+        }
+      ]
     ],
     "scheme": "gmm",
-    "backgroundColor": "#1A1A2E"
+    "backgroundColor": "#04080A"
   }
 }
