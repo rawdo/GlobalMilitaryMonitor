@@ -74,17 +74,18 @@ export interface MilitaryAsset {
 }
 
 export interface FeedStatus {
+  id: string;
   name: string;
-  ok: boolean;
+  url: string;
+  homepage: string;
+  /** null until the first fetch completes. */
+  ok: boolean | null;
   count: number;
   error?: string;
-}
-
-export interface MonitorSnapshot {
-  events: GeoEvent[];
-  zones: ConflictZone[];
-  assets: MilitaryAsset[];
-  feeds: FeedStatus[];
-  /** ISO timestamp of the last successful refresh. */
-  updatedAt: string | null;
+  /** ISO timestamps. */
+  lastChecked: string | null;
+  lastChanged: string | null;
+  nextCheck: string | null;
+  /** Human-readable explanation of the polling interval, e.g. "5 min (source cache)". */
+  schedule: string;
 }
