@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { RefreshControl, SectionList, StyleSheet, Text, View } from 'react-native';
+import { Pressable, RefreshControl, SectionList, StyleSheet, Text, View } from 'react-native';
 import type { ConflictZone, FeedStatus, MilitaryAsset } from '../../lib/types';
 import { useMonitor } from '../../state/MonitorProvider';
 import { assetIcon, colors, severityColor, timeAgo } from '../../theme';
@@ -7,16 +7,23 @@ import { assetIcon, colors, severityColor, timeAgo } from '../../theme';
 type Row =
   | { kind: 'zone'; zone: ConflictZone }
   | { kind: 'asset'; asset: MilitaryAsset }
-  | { kind: 'feed'; feed: FeedStatus };
+  | { kind: 'feed'; feed: FeedStatus }
+  | { kind: 'summary'; feeds: FeedStatus[]; expanded: boolean; toggle: () => void };
 
 export default function IntelScreen() {
   const { zones, assets, feeds, updatedAt, refreshing, refresh } = useMonitor();
   const now = useNow(5000);
+  const [expanded, setExpanded] = useState(false);
 
+  // Collapsed, only sources with problems are listed under the summary.
+  const shownFeeds = expanded ? feeds : feeds.filter((f) => f.ok === false);
   const sections: { title: string; data: Row[] }[] = [
     {
-      title: `LIVE SOURCES · last update ${timeAgo(updatedAt, now)}`,
-      data: feeds.map((feed) => ({ kind: 'feed', feed })),
+      title: `LIVE SOURCES (${feeds.length}) · last update ${timeAgo(updatedAt, now)}`,
+      data: [
+        { kind: 'summary', feeds, expanded, toggle: () => setExpanded((e) => !e) },
+        ...shownFeeds.map((feed): Row => ({ kind: 'feed', feed })),
+      ],
     },
     { title: `ACTIVE CONFLICT ZONES (${zones.length})`, data: zones.map((zone) => ({ kind: 'zone', zone })) },
     { title: `TRACKED ASSETS (${assets.length})`, data: assets.map((asset) => ({ kind: 'asset', asset })) },
@@ -88,6 +95,27 @@ function IntelRow({ row, now }: { row: Row; now: number }) {
           ) : null}
         </View>
       );
+    case 'summary': {
+      const ok = row.feeds.filter((f) => f.ok).length;
+      const failing = row.feeds.filter((f) => f.ok === false).length;
+      const pending = row.feeds.length - ok - failing;
+      const events = row.feeds.reduce((n, f) => n + f.count, 0);
+      return (
+        <Pressable onPress={row.toggle} style={({ pressed }) => [styles.card, pressed && { opacity: 0.7 }]}>
+          <View style={styles.feed}>
+            <Text style={[styles.title, styles.feedName]}>
+              <Text style={{ color: severityColor.Low }}>● {ok} live</Text>
+              {failing ? <Text style={{ color: colors.alert }}>{`   ● ${failing} failing`}</Text> : null}
+              {pending ? <Text style={{ color: colors.textSecondary }}>{`   ● ${pending} starting`}</Text> : null}
+            </Text>
+            <Text style={styles.toggle}>{row.expanded ? 'Hide ▲' : 'Show all ▼'}</Text>
+          </View>
+          <Text style={styles.meta}>
+            {events} events from {row.feeds.length} sources · each checked as soon as it can have new content
+          </Text>
+        </Pressable>
+      );
+    }
     case 'feed': {
       const { feed } = row;
       const dotColor = feed.ok == null ? colors.textSecondary : feed.ok ? severityColor.Low : colors.alert;
@@ -95,7 +123,9 @@ function IntelRow({ row, now }: { row: Row; now: number }) {
         <View style={styles.card}>
           <View style={styles.feed}>
             <Text style={[styles.dot, { color: dotColor }]}>●</Text>
-            <Text style={[styles.title, styles.feedName]}>{feed.name}</Text>
+            <Text style={[styles.title, styles.feedName]}>
+              {feed.name} <Text style={styles.group}>{feed.group}</Text>
+            </Text>
             <Text style={styles.meta}>{feed.count} events</Text>
           </View>
           {feed.error ? (
@@ -144,6 +174,8 @@ const styles = StyleSheet.create({
   feed: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   feedName: { flex: 1 },
   dot: { fontSize: 12 },
+  toggle: { color: colors.accent, fontSize: 13, fontWeight: '700' },
+  group: { color: colors.textSecondary, fontSize: 11, fontWeight: '400' },
   url: { color: colors.accent, fontSize: 11, marginTop: 4, opacity: 0.7 },
   footer: { color: colors.textSecondary, fontSize: 12, textAlign: 'center', padding: 24, opacity: 0.7 },
 });

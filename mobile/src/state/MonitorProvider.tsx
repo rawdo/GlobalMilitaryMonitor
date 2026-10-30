@@ -176,7 +176,8 @@ export function MonitorProvider({ children }: { children: ReactNode }) {
       })
       .catch(() => {})
       .finally(() => {
-        if (!cancelled) SOURCES.forEach((s) => poll(s));
+        // Stagger the first round so ~35 requests don't all fire in the same instant.
+        if (!cancelled) SOURCES.forEach((s, i) => schedule(s, i * 150));
       });
     const pending = timers.current;
     return () => {
@@ -184,7 +185,7 @@ export function MonitorProvider({ children }: { children: ReactNode }) {
       pending.forEach(clearTimeout);
       pending.clear();
     };
-  }, [poll, update]);
+  }, [schedule, update]);
 
   // Pause polling in the background; on return, immediately check any source that came due meanwhile.
   useEffect(() => {
@@ -231,6 +232,7 @@ export function MonitorProvider({ children }: { children: ReactNode }) {
       feeds: SOURCES.map((source, i) => ({
         id: source.id,
         name: source.name,
+        group: source.group,
         url: source.url,
         homepage: source.homepage,
         ok: states[i].ok,

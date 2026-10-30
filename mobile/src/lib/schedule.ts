@@ -7,6 +7,8 @@ export interface ScheduleLimits {
   minIntervalMs: number;
   /** Never wait longer than this, even if the source says its content is fresh for longer. */
   maxIntervalMs: number;
+  /** Used when the source gives no freshness information (defaults to minIntervalMs). */
+  defaultIntervalMs?: number;
 }
 
 export interface HeaderReader {
@@ -59,7 +61,8 @@ export function formatInterval(ms: number): string {
 export function scheduleAfterSuccess(headers: HeaderReader, limits: ScheduleLimits): NextFetch {
   const fresh = freshnessSeconds(headers);
   if (fresh == null) {
-    return { delayMs: limits.minIntervalMs, reason: `every ${formatInterval(limits.minIntervalMs)}` };
+    const delayMs = limits.defaultIntervalMs ?? limits.minIntervalMs;
+    return { delayMs, reason: `${formatInterval(delayMs)} (no cache info from source)` };
   }
   const delayMs = clamp(fresh * 1000, limits);
   const why =

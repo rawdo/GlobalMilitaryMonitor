@@ -7,8 +7,10 @@ import {
   guessLocation,
   hashId,
   isMilitaryRelated,
+  parseFeedDate,
   parseGdeltDate,
   stripHtml,
+  type Location,
 } from './classify';
 import type { Source } from './sources';
 import { SEVERITY_RANK, type GeoEvent } from './types';
@@ -42,10 +44,11 @@ function buildEvent(
   timestamp: string,
   source: string,
   sourceUrl: string,
+  fallbackLocation?: Location,
 ): GeoEvent {
   const text = `${title} ${description}`;
   const severity = assessSeverity(text);
-  const location = guessLocation(text);
+  const location = guessLocation(text) ?? fallbackLocation;
   return {
     id: hashId(sourceUrl || title),
     title,
@@ -101,31 +104,35 @@ function asArray<T>(value: T | T[] | undefined): T[] {
   return Array.isArray(value) ? value : [value];
 }
 
-/** Parses an RSS 2.0 or Atom document into military-related events. */
-export function parseRss(xml: string, sourceName: string): GeoEvent[] {
+type RssSource = Pick<Source, 'name' | 'militaryOnly' | 'fallbackLocation'>;
+
+/** Parses an RSS 2.0 or Atom document into events (only military-related ones if the source asks). */
+export function parseRss(xml: string, source: RssSource): GeoEvent[] {
   const doc = xmlParser.parse(xml);
   const items: Record<string, unknown>[] = asArray(doc?.rss?.channel?.item ?? doc?.feed?.entry);
   const events: GeoEvent[] = [];
   for (const item of items.slice(0, 30)) {
     const title = stripHtml(textOf(item.title));
     const description = stripHtml(textOf(item.description ?? item.summary));
-    if (!title || !isMilitaryRelated(`${title} ${description}`)) continue;
+    if (!title || (source.militaryOnly && !isMilitaryRelated(`${title} ${description}`))) continue;
 
     const link = item.link;
     const url =
       typeof link === 'object' && link && '@_href' in link
         ? String((link as { '@_href': string })['@_href'])
         : textOf(Array.isArray(link) ? link[0] : link);
-    const date = new Date(textOf(item.pubDate ?? item.published ?? item.updated));
-    const timestamp = isNaN(date.getTime()) ? new Date().toISOString() : date.toISOString();
+    const timestamp =
+      parseFeedDate(textOf(item.pubDate ?? item.published ?? item.updated ?? item['dc:date'])) ??
+      new Date().toISOString();
 
     events.push(
       buildEvent(
         title,
         description.length > 280 ? `${description.slice(0, 280)}…` : description,
         timestamp,
-        sourceName,
+        source.name,
         url,
+        source.fallbackLocation,
       ),
     );
   }
@@ -153,7 +160,7 @@ export async function fetchSource(source: Source, validators: Validators): Promi
     const body = await res.text();
     return {
       changed: true,
-      events: source.kind === 'gdelt' ? parseGdelt(body) : parseRss(body, source.name),
+      events: source.kind === 'gdelt' ? parseGdelt(body) : parseRss(body, source),
       headers: res.headers,
       validators: {
         etag: res.headers.get('etag') ?? undefined,

@@ -31,7 +31,8 @@ test('success schedules at the source cache lifetime, clamped', () => {
   assert.match(bbc.reason, /minimum/);
   // A day-long cache is capped.
   assert.equal(scheduleAfterSuccess(headers({ 'cache-control': 'max-age=86400' }), limits).delayMs, 900_000);
-  // No hints (GDELT): minimum interval.
+  // No hints: the source's default interval, else the minimum (GDELT).
+  assert.equal(scheduleAfterSuccess(headers({}), { ...limits, defaultIntervalMs: 120_000 }).delayMs, 120_000);
   assert.equal(scheduleAfterSuccess(headers({}), { ...limits, minIntervalMs: 60_000 }).delayMs, 60_000);
 });
 

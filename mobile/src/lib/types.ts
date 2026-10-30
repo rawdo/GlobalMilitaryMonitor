@@ -76,6 +76,7 @@ export interface MilitaryAsset {
 export interface FeedStatus {
   id: string;
   name: string;
+  group: string;
   url: string;
   homepage: string;
   /** null until the first fetch completes. */

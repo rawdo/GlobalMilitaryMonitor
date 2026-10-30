@@ -155,6 +155,40 @@ export function stripHtml(html: string): string {
     .trim();
 }
 
+const MONTHS: Record<string, number> = {
+  jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5, jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11,
+};
+const ZONES: Record<string, number> = { GMT: 0, UT: 0, UTC: 0, Z: 0, EST: -5, EDT: -4, CST: -6, CDT: -5, MST: -7, MDT: -6, PST: -8, PDT: -7 };
+
+/**
+ * Parses RSS (RFC 822) and Atom (ISO 8601) dates without relying on Date.parse, whose support for
+ * these formats varies between JS engines. Also accepts offsets without a colon ("-0400").
+ * Returns an ISO string, or null if unparseable.
+ */
+export function parseFeedDate(value: string | undefined): string | null {
+  if (!value) return null;
+  const v = value.trim();
+  const offsetMinutes = (sign: string, hh: string, mm: string) => (sign === '-' ? -1 : 1) * (+hh * 60 + +mm);
+
+  const iso = v.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?(?:\.\d+)?\s*(Z|([+-])(\d{2}):?(\d{2}))?$/i);
+  if (iso) {
+    const [, y, mo, d, h, mi, sec = '0', zone, sign, oh, om] = iso;
+    const offset = zone && zone.toUpperCase() !== 'Z' ? offsetMinutes(sign, oh, om) : 0;
+    return new Date(Date.UTC(+y, +mo - 1, +d, +h, +mi, +sec) - offset * 60_000).toISOString();
+  }
+
+  const rfc = v.match(/^(?:[a-z]{3},?\s+)?(\d{1,2})\s+([a-z]{3})[a-z]*\s+(\d{2,4})\s+(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(?:([+-])(\d{2})(\d{2})|([a-z]+))?$/i);
+  if (rfc && rfc[2].toLowerCase() in MONTHS) {
+    const [, d, mon, yRaw, h, mi, sec = '0', sign, oh, om, named] = rfc;
+    const y = yRaw.length === 2 ? 2000 + +yRaw : +yRaw;
+    const offset = sign ? offsetMinutes(sign, oh, om) : (ZONES[(named ?? 'GMT').toUpperCase()] ?? 0) * 60;
+    return new Date(Date.UTC(y, MONTHS[mon.toLowerCase()], +d, +h, +mi, +sec) - offset * 60_000).toISOString();
+  }
+
+  const fallback = new Date(v);
+  return isNaN(fallback.getTime()) ? null : fallback.toISOString();
+}
+
 /** Parses GDELT "seendate" values such as 20261030T081500Z. */
 export function parseGdeltDate(value: string | undefined): string {
   const m = value?.match(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z$/);

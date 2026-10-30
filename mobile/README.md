@@ -9,8 +9,8 @@ Expo (React Native + TypeScript) and Expo Router.
 
 - **Map** — dark world map (Leaflet + Esri tiles) with conflict zones, geolocated events colour-coded by
   severity (alerts pulse), and known military deployments. Tap an event for details.
-- **Feed** — live news from GDELT and RSS (Defense News, BBC World, NYT World, Al Jazeera), filtered to
-  military topics, with search and category filters.
+- **Feed** — live news from 35 sources (GDELT plus 34 defense, regional and world-news RSS feeds; see
+  below), with search and category filters.
 - **Alerts** — high and critical severity events, with a badge count on the tab.
 - **Intel** — live status of every data source (last check, next check, polling interval), active
   conflict zones and tracked assets.
@@ -19,22 +19,59 @@ Expo (React Native + TypeScript) and Expo Router.
 
 ## Data sources
 
-| Source | Type | Endpoint | Checked every | Why |
-|---|---|---|---|---|
-| GDELT Project | News event API (JSON) | `api.gdeltproject.org/api/v2/doc/doc` | 1 min | No cache headers; publishes in 15-min batches; hard limit 1 request / 5 s |
-| Defense News | RSS | `defensenews.com/feed/` | 5 min | Server sends `Cache-Control: max-age=300` |
-| BBC World | RSS | `feeds.bbci.co.uk/news/world/rss.xml` | 30 s | Server sends `max-age=4`; floored at 30 s |
-| NYT World | RSS | `rss.nytimes.com/services/xml/rss/nyt/World.xml` | 5 min | Server sends `max-age=300` |
-| Al Jazeera | RSS | `aljazeera.com/xml/rss/all.xml` | 5 min | Server sends `max-age=300` |
-| Conflict zones | Built-in reference data | `src/lib/seed.ts` | — | Static (12 zones, from the desktop app) |
-| Military deployments | Built-in OSINT reference data | `src/lib/seed.ts` | — | Static (14 assets, from the desktop app) |
+35 live sources, plus built-in reference data. Every URL below was checked to return a current feed.
+
+| # | Source | Group | Feed | Checked every* | Filtered |
+|---|---|---|---|---|---|
+| 1 | [GDELT Project](https://www.gdeltproject.org/) | Aggregator | `api.gdeltproject.org/api/v2/doc/doc` | 1 min (no cache info; 15-min batches) | all items |
+| 2 | [Defense News](https://www.defensenews.com/) | Defense | `defensenews.com/feed/` | 5 min (source cache) | all items |
+| 3 | [Breaking Defense](https://breakingdefense.com/) | Defense | `breakingdefense.com/feed/` | 10 min (source cache) | all items |
+| 4 | [The War Zone](https://www.twz.com/) | Defense | `twz.com/feed` | 5 min (source cache) | all items |
+| 5 | [Defense One](https://www.defenseone.com/) | Defense | `defenseone.com/rss/all/` | 15 min (source cache) | all items |
+| 6 | [Military Times](https://www.militarytimes.com/) | Defense | `militarytimes.com/feed/` | 5 min (source cache) | all items |
+| 7 | [Army Times](https://www.armytimes.com/) | Defense | `armytimes.com/feed/` | 5 min (source cache) | all items |
+| 8 | [Navy Times](https://www.navytimes.com/) | Defense | `navytimes.com/feed/` | 5 min (source cache) | all items |
+| 9 | [Air Force Times](https://www.airforcetimes.com/) | Defense | `airforcetimes.com/feed/` | 5 min (source cache) | all items |
+| 10 | [Air & Space Forces Magazine](https://www.airandspaceforces.com/) | Defense | `airandspaceforces.com/feed/` | 15 min (maximum interval) | all items |
+| 11 | [USNI News](https://news.usni.org/) | Defense | `news.usni.org/feed` | 10 min (source cache) | all items |
+| 12 | [Naval News](https://www.navalnews.com/) | Defense | `navalnews.com/feed/` | 15 min (maximum interval) | all items |
+| 13 | [Task & Purpose](https://taskandpurpose.com/) | Defense | `taskandpurpose.com/feed/` | 5 min (source cache) | all items |
+| 14 | [Military.com](https://www.military.com/) | Defense | `military.com/feed/daily-news/` | 30s (minimum interval) | all items |
+| 15 | [UK Defence Journal](https://ukdefencejournal.org.uk/) | Defense | `ukdefencejournal.org.uk/feed/` | 2 min (no cache info from source) | all items |
+| 16 | [Defence Blog](https://defence-blog.com/) | Defense | `defence-blog.com/feed/` | 2 min (no cache info from source) | all items |
+| 17 | [FDD Long War Journal](https://www.longwarjournal.org/) | Defense | `longwarjournal.org/feed` | 10 min (source cache) | all items |
+| 18 | [DVIDS](https://www.dvidshub.net/) | Defense | `dvidshub.net/rss/news` | 2 min (no cache info from source) | all items |
+| 19 | [U.S. Department of War](https://www.war.gov/News/) | Defense | `war.gov/DesktopModules/ArticleCS/RSS.ashx` | 2 min (no cache info from source) | all items |
+| 20 | [Kyiv Independent](https://kyivindependent.com/) | Conflict regions | `kyivindependent.com/news-archive/rss/` | 30s (minimum interval) | military topics only, defaults to Ukraine |
+| 21 | [Ukrainska Pravda](https://www.pravda.com.ua/eng/) | Conflict regions | `pravda.com.ua/eng/rss/` | 30s (minimum interval) | military topics only, defaults to Ukraine |
+| 22 | [Meduza](https://meduza.io/en) | Conflict regions | `meduza.io/rss/en/all` | 1 min (source cache) | military topics only |
+| 23 | [Middle East Eye](https://www.middleeasteye.net/) | Conflict regions | `middleeasteye.net/rss` | 1 min (source cache) | military topics only |
+| 24 | [Al-Monitor](https://www.al-monitor.com/) | Conflict regions | `al-monitor.com/rss` | 15 min (maximum interval) | military topics only |
+| 25 | [Yonhap News](https://en.yna.co.kr/) | Conflict regions | `en.yna.co.kr/RSS/news.xml` | 30s (minimum interval) | military topics only |
+| 26 | [NK News](https://www.nknews.org/) | Conflict regions | `nknews.org/feed/` | 2 min (no cache info from source) | military topics only, defaults to North Korea |
+| 27 | [South China Morning Post](https://www.scmp.com/) | Conflict regions | `scmp.com/rss/91/feed/` | 15 min (maximum interval) | military topics only |
+| 28 | [Dawn](https://www.dawn.com/) | Conflict regions | `dawn.com/feeds/home` | 30s (source cache) | military topics only |
+| 29 | [Africanews](https://www.africanews.com/) | Conflict regions | `africanews.com/feed/rss` | 15 min (maximum interval) | military topics only |
+| 30 | [BBC World](https://www.bbc.com/news/world) | World news | `feeds.bbci.co.uk/news/world/rss.xml` | 30s (minimum interval) | military topics only |
+| 31 | [NYT World](https://www.nytimes.com/section/world) | World news | `rss.nytimes.com/services/xml/rss/nyt/World.xml` | 5 min (source cache) | military topics only |
+| 32 | [Al Jazeera](https://www.aljazeera.com/) | World news | `aljazeera.com/xml/rss/all.xml` | 5 min (source cache) | military topics only |
+| 33 | [The Guardian World](https://www.theguardian.com/world) | World news | `theguardian.com/world/rss` | 1 min (source cache) | military topics only |
+| 34 | [UN News: Peace & Security](https://news.un.org/en/news/topic/peace-and-security) | World news | `news.un.org/feed/subscribe/en/news/topic/peace-and-security/feed/rss.xml` | 2 min (no cache info from source) | military topics only |
+| 35 | [The Record](https://therecord.media/) | Cyber | `therecord.media/feed` | 2 min (no cache info from source) | all items |
+
+\* Steady-state intervals derived from each source's `Cache-Control` / `Expires` headers when they were added
+(clamped to 30 s – 15 min; 2 min when a source gives no cache info). The app re-reads the headers on every
+response, so if a source changes its caching the interval follows. "Military topics only" means items must
+match the military keyword filter; specialist defense outlets keep everything.
+
+Built-in reference data (`src/lib/seed.ts`, static): 12 active conflict zones and 14 known military
+deployments, both ported from the desktop app.
 
 How refresh scheduling works (`src/lib/schedule.ts`):
 
 - After each response, the next check is set from the source's own `Cache-Control: max-age` (minus
   `Age`) or `Expires` header, i.e. the moment its content can next change, clamped between 30 s
-  (1 min for GDELT) and 15 min. The intervals above are what the sources currently send; if a source
-  changes its headers, the app follows automatically.
+  (1 min for GDELT) and 15 min; sources that send no cache info are checked every 2 min.
 - Requests carry `If-None-Match` / `If-Modified-Since`, so an unchanged feed answers with an empty 304.
 - On HTTP 429 the app honours `Retry-After`; on any error it backs off exponentially (×2 each failure, up
   to 15 min) and keeps showing that source's last good events.

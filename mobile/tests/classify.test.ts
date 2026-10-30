@@ -6,6 +6,7 @@ import {
   guessLocation,
   hashId,
   isMilitaryRelated,
+  parseFeedDate,
   parseGdeltDate,
   stripHtml,
 } from '../src/lib/classify.ts';
@@ -59,4 +60,15 @@ test('helpers', () => {
   assert.equal(parseGdeltDate('20261030T081500Z'), '2026-10-30T08:15:00.000Z');
   assert.equal(hashId('abc'), hashId('abc'));
   assert.notEqual(hashId('abc'), hashId('abd'));
+});
+
+test('parseFeedDate handles RSS and Atom variants', () => {
+  assert.equal(parseFeedDate('Fri, 30 Oct 2026 04:29:22 -0400'), '2026-10-30T08:29:22.000Z');
+  assert.equal(parseFeedDate('Fri, 30 Oct 2026 09:02:58 GMT'), '2026-10-30T09:02:58.000Z');
+  assert.equal(parseFeedDate('30 Oct 2026 09:02 EDT'), '2026-10-30T13:02:00.000Z');
+  assert.equal(parseFeedDate('2026-10-30T03:46:30-0400'), '2026-10-30T07:46:30.000Z'); // Al-Monitor
+  assert.equal(parseFeedDate('2026-10-30T10:15:00+02:00'), '2026-10-30T08:15:00.000Z');
+  assert.equal(parseFeedDate('2026-10-30T08:00:00.123Z'), '2026-10-30T08:00:00.000Z');
+  assert.equal(parseFeedDate('not a date'), null);
+  assert.equal(parseFeedDate(''), null);
 });

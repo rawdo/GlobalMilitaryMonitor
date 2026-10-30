@@ -4,7 +4,7 @@
 import { normalizeTitle } from './classify';
 import type { GeoEvent } from './types';
 
-const MAX_EVENTS = 200;
+const MAX_EVENTS = 400;
 
 export function mergeEvents(groups: GeoEvent[][]): GeoEvent[] {
   const seen = new Set<string>();
