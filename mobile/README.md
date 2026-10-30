@@ -1,7 +1,7 @@
 # Global Military Monitor — Mobile
 
 iOS and Android companion app for the Global Military Monitor desktop dashboard, built with
-Expo (React Native + TypeScript) and Expo Router.
+Expo (React Native + TypeScript) and Expo Router, with a tactical HUD interface.
 
 ![Map, Feed, Alerts, Intel and event detail screens](docs/screenshots.png)
 
@@ -107,9 +107,43 @@ Then scan the QR code with **Expo Go** ([iOS](https://apps.apple.com/app/expo-go
 [Android](https://play.google.com/store/apps/details?id=host.exp.exponent)), or press `i` / `a` to open an
 iOS simulator / Android emulator.
 
-## Building installable apps
+## Installing on an Android phone
 
-Use [EAS Build](https://docs.expo.dev/build/introduction/) (no Xcode/Android Studio needed):
+The app is distributed as an APK you install directly (tested build target: arm64 phones on Android 7+,
+e.g. the Oppo Find X5 Pro on ColorOS).
+
+1. Download the APK on the phone (from a GitHub release or the Actions run artifact, see below).
+2. Open it from the notification or **Files**. ColorOS will ask to allow installs from that app: tap
+   **Settings**, enable **Allow from this source**, go back, and tap **Install**.
+3. If Google Play Protect warns about an unknown developer, choose **Install anyway** — the APK is
+   self-built, not from the Play Store.
+
+Newer builds install over older ones and keep your data, because every build is signed with the same key.
+
+> The release APK is signed with the standard Expo/React Native template key, which is public. That's fine
+> for installing your own builds, but anyone could sign an "update" with it. Before distributing the app to
+> others, switch to a private signing key.
+
+## Building the APK
+
+**On GitHub (recommended):** the **Android APK** workflow (`.github/workflows/android-apk.yml`) runs the
+checks and builds the arm64 release APK. Start it from the repository's **Actions** tab (**Run workflow**),
+or push a version tag (`git tag v1.0.1 && git push origin v1.0.1`) to also publish it as a GitHub release.
+
+**Locally** (needs Node 22, JDK 17+, and the Android SDK with platform 37, build-tools 37.0.0 and NDK
+27.1.12297006):
+
+```bash
+npm install
+npx expo prebuild --platform android
+cd android && ./gradlew assembleRelease -PreactNativeArchitectures=arm64-v8a
+# -> android/app/build/outputs/apk/release/app-release.apk
+```
+
+The `android/` folder is generated from `app.json` and is not committed. Bump `expo.version` and
+`expo.android.versionCode` in `app.json` for each release.
+
+**With EAS Build** (Expo's cloud service; needs an Expo account):
 
 ```bash
 npx eas-cli@latest login
