@@ -16,6 +16,14 @@ A Windows desktop application providing a real-time global monitoring dashboard 
 - **Event Timeline** — Horizontal scrolling timeline panel showing the latest incidents in chronological order
 - **Dark Theme UI** — Professional dark theme with color-coded severity indicators
 
+## Mobile App
+
+An iOS/Android companion app lives in [`mobile/`](mobile/README.md). It's built with Expo (React Native) and includes the map, live feed, alerts and conflict-zone views. To try it on your phone with Expo Go:
+
+```bash
+cd mobile && npm install && npx expo start
+```
+
 ## Architecture
 
 The application follows a modular architecture with clear separation of concerns:
