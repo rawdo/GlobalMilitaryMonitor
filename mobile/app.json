@@ -25,7 +25,9 @@
     },
     "plugins": [
       "expo-router",
-      "expo-web-browser"
+      "expo-web-browser",
+      "expo-font",
+      "expo-splash-screen"
     ],
     "scheme": "gmm",
     "backgroundColor": "#1A1A2E"

@@ -3,7 +3,7 @@ import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-
 import { EventList } from '../../components/EventList';
 import type { EventCategory } from '../../lib/types';
 import { useMonitor } from '../../state/MonitorProvider';
-import { categoryIcon, categoryLabel, colors } from '../../theme';
+import { categoryCode, categoryLabel, colors, fonts } from '../../theme';
 
 export default function FeedScreen() {
   const { events } = useMonitor();
@@ -31,21 +31,29 @@ export default function FeedScreen() {
 
   const header = (
     <View>
-      <TextInput
-        style={styles.search}
-        placeholder="Search events, countries…"
-        placeholderTextColor={colors.textSecondary}
-        value={search}
-        onChangeText={setSearch}
-        clearButtonMode="while-editing"
-        autoCorrect={false}
-      />
+      <View style={styles.searchBox}>
+        <Text style={styles.prompt}>{'>'}</Text>
+        <TextInput
+          style={styles.search}
+          placeholder="QUERY: event, country, source…"
+          placeholderTextColor={colors.textFaint}
+          value={search}
+          onChangeText={setSearch}
+          clearButtonMode="while-editing"
+          autoCorrect={false}
+          autoCapitalize="none"
+          selectionColor={colors.accent}
+          cursorColor={colors.accent}
+        />
+        <Text style={styles.count}>{filtered.length}</Text>
+      </View>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips}>
-        <Chip label={`All (${events.length})`} active={!category} onPress={() => setCategory(null)} />
+        <Chip label={`ALL ${events.length}`} active={!category} onPress={() => setCategory(null)} />
         {categories.map(([c, n]) => (
           <Chip
             key={c}
-            label={`${categoryIcon[c]} ${categoryLabel[c]} (${n})`}
+            label={`${categoryCode[c]} ${n}`}
+            hint={categoryLabel[c]}
             active={category === c}
             onPress={() => setCategory(category === c ? null : c)}
           />
@@ -54,37 +62,38 @@ export default function FeedScreen() {
     </View>
   );
 
-  return <EventList events={filtered} header={header} emptyText="No events match your filters." />;
+  return <EventList events={filtered} header={header} emptyText="NO CONTACTS MATCH QUERY." />;
 }
 
-function Chip({ label, active, onPress }: { label: string; active: boolean; onPress: () => void }) {
+function Chip({ label, hint, active, onPress }: { label: string; hint?: string; active: boolean; onPress: () => void }) {
   return (
-    <Pressable onPress={onPress} style={[styles.chip, active && styles.chipActive]}>
+    <Pressable
+      onPress={onPress}
+      style={[styles.chip, active && styles.chipActive]}
+      accessibilityLabel={hint ? `${hint} ${label}` : label}
+    >
       <Text style={[styles.chipText, active && styles.chipTextActive]}>{label}</Text>
     </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
-  search: {
-    backgroundColor: colors.surface,
-    color: colors.text,
-    borderRadius: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    margin: 12,
-    marginBottom: 4,
-    fontSize: 15,
-  },
-  chips: { paddingHorizontal: 12, paddingVertical: 8, gap: 8 },
-  chip: {
-    borderRadius: 16,
+  searchBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.panel,
     borderWidth: 1,
-    borderColor: colors.border,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
+    borderColor: colors.line,
+    marginHorizontal: 12,
+    marginTop: 10,
+    paddingHorizontal: 10,
   },
+  prompt: { color: colors.accent, fontFamily: fonts.monoBold, fontSize: 14, marginRight: 8 },
+  search: { flex: 1, color: colors.text, fontFamily: fonts.mono, fontSize: 13, paddingVertical: 10 },
+  count: { color: colors.textSecondary, fontFamily: fonts.mono, fontSize: 11 },
+  chips: { paddingHorizontal: 12, paddingVertical: 10, gap: 6 },
+  chip: { borderWidth: 1, borderColor: colors.line, paddingHorizontal: 10, paddingVertical: 5 },
   chipActive: { backgroundColor: colors.accent, borderColor: colors.accent },
-  chipText: { color: colors.textSecondary, fontSize: 13 },
-  chipTextActive: { color: colors.background, fontWeight: '700' },
+  chipText: { color: colors.textSecondary, fontFamily: fonts.monoBold, fontSize: 11, letterSpacing: 1 },
+  chipTextActive: { color: colors.background },
 });

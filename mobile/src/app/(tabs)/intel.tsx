@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 import { Pressable, RefreshControl, SectionList, StyleSheet, Text, View } from 'react-native';
+import { HudPanel, SectionLabel, Tag } from '../../components/hud';
 import type { FeedStatus, Hotspot, MilitaryAsset } from '../../lib/types';
 import { useMonitor } from '../../state/MonitorProvider';
-import { assetIcon, colors, severityColor, timeAgo } from '../../theme';
+import { assetIcon, colors, fonts, formatCoords, severityColor, timeAgo } from '../../theme';
 
 type Row =
   | { kind: 'zone'; zone: Hotspot }
@@ -25,31 +26,34 @@ export default function IntelScreen() {
 
   // Collapsed, only sources with problems are listed under the summary.
   const shownFeeds = expanded ? feeds : feeds.filter((f) => f.ok === false);
-  const sections: { title: string; data: Row[] }[] = [
+  const sections: { title: string; right: string; data: Row[] }[] = [
     {
-      title: `LIVE SOURCES (${feeds.length}) · last update ${timeAgo(updatedAt, now)}`,
+      title: `Source network · ${feeds.length}`,
+      right: `SYNC ${timeAgo(updatedAt, now).toUpperCase()}`,
       data: [
         { kind: 'summary', feeds, expanded, toggle: () => setExpanded((e) => !e) },
         ...shownFeeds.map((feed): Row => ({ kind: 'feed', feed })),
       ],
     },
     {
-      title: `HOTSPOTS (${hotspots.length}) · from the last 24h of reports`,
+      title: `Hotspots · ${hotspots.length}`,
+      right: 'LAST 24H OF REPORTS',
       data: hotspots.length
         ? hotspots.map((zone): Row => ({ kind: 'zone', zone }))
-        : [{ kind: 'empty', text: 'No place has 3+ located reports in the last 24 hours yet.' }],
+        : [{ kind: 'empty', text: 'NO LOCATION HAS 3+ LOCATED REPORTS IN THE LAST 24H.' }],
     },
     {
-      title: `MILITARY AIRCRAFT (${assets.length}) · live ADS-B`,
+      title: `Air tracks · ${assets.length}`,
+      right: 'LIVE ADS-B',
       data: [
         ...(assets.length
           ? shownAircraft.map((asset): Row => ({ kind: 'asset', asset }))
-          : [{ kind: 'empty', text: 'No live positions from the ADS-B sources right now.' } as Row]),
+          : [{ kind: 'empty', text: 'NO LIVE POSITIONS FROM THE ADS-B NETWORKS.' } as Row]),
         ...(aircraft.length > COLLAPSED_AIRCRAFT
           ? [
               {
                 kind: 'more',
-                label: allAircraft ? 'Show fewer ▲' : `Show all ${aircraft.length} ▼`,
+                label: allAircraft ? 'COLLAPSE ▲' : `SHOW ALL ${aircraft.length} TRACKS ▼`,
                 toggle: () => setAllAircraft((v) => !v),
               } as Row,
             ]
@@ -64,12 +68,22 @@ export default function IntelScreen() {
       sections={sections}
       keyExtractor={(row, i) => `${row.kind}-${i}`}
       stickySectionHeadersEnabled={false}
-      renderSectionHeader={({ section }) => <Text style={styles.section}>{section.title}</Text>}
+      renderSectionHeader={({ section }) => <SectionLabel right={section.right}>{section.title}</SectionLabel>}
       renderItem={({ item }) => <IntelRow row={item} now={now} />}
-      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={colors.accent} />}
+      refreshControl={
+        <RefreshControl
+          refreshing={refreshing}
+          onRefresh={refresh}
+          tintColor={colors.accent}
+          colors={[colors.accent]}
+          progressBackgroundColor={colors.panelRaised}
+        />
+      }
       ListFooterComponent={
         <Text style={styles.footer}>
-          All data is live. Hotspots are computed from the reports above; event locations are approximate (country or city level, inferred from the text). Aircraft are those the ADS-B networks flag as military; warships are not tracked because no free live source exists.
+          ALL DATA IS LIVE OPEN-SOURCE. HOTSPOTS ARE COMPUTED FROM THE REPORTS ABOVE; EVENT LOCATIONS ARE APPROXIMATE
+          (COUNTRY/CITY LEVEL). AIR TRACKS ARE AIRCRAFT THE ADS-B NETWORKS FLAG AS MILITARY. NAVAL UNITS ARE NOT TRACKED:
+          NO FREE LIVE SOURCE EXISTS.
         </Text>
       }
     />
@@ -89,51 +103,62 @@ function useNow(intervalMs: number) {
 function timeUntil(iso: string | null, now: number): string {
   if (!iso) return '—';
   const s = Math.round((new Date(iso).getTime() - now) / 1000);
-  if (s <= 0) return 'now';
-  return s < 60 ? `in ${s}s` : `in ${Math.round(s / 60)} min`;
+  if (s <= 0) return 'NOW';
+  return s < 60 ? `T-${s}S` : `T-${Math.round(s / 60)}M`;
 }
 
 function IntelRow({ row, now }: { row: Row; now: number }) {
   switch (row.kind) {
-    case 'zone':
+    case 'zone': {
+      const color = severityColor[row.zone.intensity];
       return (
-        <View style={[styles.card, { borderLeftColor: severityColor[row.zone.intensity] }]}>
+        <HudPanel style={styles.card} accent={color} edgeColor={color}>
           <View style={styles.rowHeader}>
-            <Text style={styles.title}>{row.zone.name}</Text>
-            <Text style={[styles.tag, { color: severityColor[row.zone.intensity] }]}>
-              {row.zone.intensity.toUpperCase()}
-            </Text>
+            <Text style={styles.title}>{row.zone.name.toUpperCase()}</Text>
+            <Tag label={row.zone.intensity.toUpperCase()} color={color} />
           </View>
-          <Text style={styles.body}>{row.zone.description}</Text>
-          <Text style={styles.meta}>
-            Reported by {row.zone.sources.join(' · ')} · latest {timeAgo(row.zone.lastUpdated, now)}
+          <View style={styles.metrics}>
+            <Metric label="REPORTS" value={row.zone.reportCount} />
+            <Metric
+              label="HIGH SEV"
+              value={row.zone.highSeverityCount}
+              color={row.zone.highSeverityCount ? severityColor.High : undefined}
+            />
+            <Metric label="LATEST" value={timeAgo(row.zone.lastUpdated, now).toUpperCase()} />
+          </View>
+          <Text style={styles.meta} numberOfLines={2}>
+            SRC: {row.zone.sources.join(' · ')}
           </Text>
-        </View>
+        </HudPanel>
       );
+    }
     case 'asset':
       return (
-        <View style={styles.card}>
-          <Text style={styles.title}>
-            {assetIcon[row.asset.type]} {row.asset.name}
-          </Text>
-          <Text style={styles.body}>
-            {row.asset.country} · {row.asset.status}
-            {row.asset.heading != null ? ` · heading ${Math.round(row.asset.heading)}°` : ''}
-          </Text>
-          <Text style={styles.meta}>
-            Seen {timeAgo(row.asset.lastSeen, now)} · {row.asset.source}
-          </Text>
+        <View style={styles.track}>
+          <Text style={styles.trackIcon}>{assetIcon[row.asset.type]}</Text>
+          <View style={styles.trackBody}>
+            <Text style={styles.trackName} numberOfLines={1}>
+              {row.asset.name}
+            </Text>
+            <Text style={styles.meta}>
+              {row.asset.country.toUpperCase()} · {row.asset.status}
+              {row.asset.heading != null ? ` · HDG ${String(Math.round(row.asset.heading)).padStart(3, '0')}` : ''}
+            </Text>
+            <Text style={styles.coords}>
+              {formatCoords(row.asset.latitude, row.asset.longitude)} · {timeAgo(row.asset.lastSeen, now).toUpperCase()}
+            </Text>
+          </View>
         </View>
       );
     case 'more':
       return (
-        <Pressable onPress={row.toggle} style={({ pressed }) => [styles.card, pressed && { opacity: 0.7 }]}>
+        <Pressable onPress={row.toggle} style={({ pressed }) => [styles.more, pressed && { opacity: 0.6 }]}>
           <Text style={styles.toggle}>{row.label}</Text>
         </Pressable>
       );
     case 'empty':
       return (
-        <View style={styles.card}>
+        <View style={styles.emptyRow}>
           <Text style={styles.meta}>{row.text}</Text>
         </View>
       );
@@ -141,83 +166,101 @@ function IntelRow({ row, now }: { row: Row; now: number }) {
       const ok = row.feeds.filter((f) => f.ok).length;
       const failing = row.feeds.filter((f) => f.ok === false).length;
       const pending = row.feeds.length - ok - failing;
-      const events = row.feeds.reduce((n, f) => n + f.count, 0);
+      const items = row.feeds.reduce((n, f) => n + f.count, 0);
       return (
-        <Pressable onPress={row.toggle} style={({ pressed }) => [styles.card, pressed && { opacity: 0.7 }]}>
-          <View style={styles.feed}>
-            <Text style={[styles.title, styles.feedName]}>
-              <Text style={{ color: severityColor.Low }}>● {ok} live</Text>
-              {failing ? <Text style={{ color: colors.alert }}>{`   ● ${failing} failing`}</Text> : null}
-              {pending ? <Text style={{ color: colors.textSecondary }}>{`   ● ${pending} starting`}</Text> : null}
-            </Text>
-            <Text style={styles.toggle}>{row.expanded ? 'Hide ▲' : 'Show all ▼'}</Text>
-          </View>
-          <Text style={styles.meta}>
-            {events} items from {row.feeds.length} sources · each checked as soon as it can have new content
-          </Text>
+        <Pressable onPress={row.toggle}>
+          <HudPanel style={styles.card}>
+            <View style={styles.rowHeader}>
+              <View style={styles.metrics}>
+                <Metric label="ONLINE" value={ok} />
+                <Metric label="FAULT" value={failing} color={failing ? colors.alert : undefined} />
+                {pending ? <Metric label="ACQUIRING" value={pending} color={colors.amber} /> : null}
+                <Metric label="ITEMS" value={items} />
+              </View>
+              <Text style={styles.toggle}>{row.expanded ? 'HIDE ▲' : 'ALL ▼'}</Text>
+            </View>
+            <Text style={styles.meta}>EACH SOURCE IS POLLED AS SOON AS IT CAN HAVE NEW CONTENT.</Text>
+          </HudPanel>
         </Pressable>
       );
     }
     case 'feed': {
       const { feed } = row;
-      const dotColor = feed.ok == null ? colors.textSecondary : feed.ok ? severityColor.Low : colors.alert;
+      const dotColor = feed.ok == null ? colors.amber : feed.ok ? colors.accent : colors.alert;
       return (
-        <View style={styles.card}>
-          <View style={styles.feed}>
-            <Text style={[styles.dot, { color: dotColor }]}>●</Text>
-            <Text style={[styles.title, styles.feedName]}>
-              {feed.name} <Text style={styles.group}>{feed.group}</Text>
+        <View style={styles.feed}>
+          <View style={styles.rowHeader}>
+            <Text style={[styles.dot, { color: dotColor }]}>■</Text>
+            <Text style={styles.feedName} numberOfLines={1}>
+              {feed.name}
             </Text>
-            <Text style={styles.meta}>{feed.count} events</Text>
+            <Text style={styles.feedGroup}>{feed.group.toUpperCase()}</Text>
           </View>
           {feed.error ? (
             <Text style={[styles.meta, { color: colors.alert }]} numberOfLines={2}>
-              {feed.error}
+              FAULT: {feed.error}
             </Text>
           ) : null}
           <Text style={styles.meta}>
-            Checked {timeAgo(feed.lastChecked, now)} · next {timeUntil(feed.nextCheck, now)}
+            {feed.count} ITEMS · CHK {timeAgo(feed.lastChecked, now).toUpperCase()} · NEXT {timeUntil(feed.nextCheck, now)}
           </Text>
-          <Text style={styles.meta}>Polling: {feed.schedule}</Text>
-          <Text style={styles.url} numberOfLines={1}>
-            {feed.url}
-          </Text>
+          <Text style={styles.meta}>POLL: {feed.schedule}</Text>
         </View>
       );
     }
   }
 }
 
+function Metric({ label, value, color = colors.text }: { label: string; value: string | number; color?: string }) {
+  return (
+    <View>
+      <Text style={[styles.metricValue, { color }]}>{value}</Text>
+      <Text style={styles.metricLabel}>{label}</Text>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   list: { flex: 1, backgroundColor: colors.background },
-  section: {
-    color: colors.accent,
-    fontSize: 12,
-    fontWeight: '800',
-    letterSpacing: 1,
-    marginHorizontal: 16,
-    marginTop: 18,
-    marginBottom: 6,
-  },
-  card: {
-    backgroundColor: colors.card,
-    borderRadius: 10,
-    borderLeftWidth: 4,
-    borderLeftColor: colors.border,
-    padding: 12,
+  card: { marginHorizontal: 12, marginVertical: 4 },
+  rowHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8 },
+  title: { color: colors.text, fontFamily: fonts.displayBold, fontSize: 18, letterSpacing: 1.5, flexShrink: 1 },
+  metrics: { flexDirection: 'row', gap: 18, marginVertical: 6 },
+  metricValue: { fontFamily: fonts.monoBold, fontSize: 15 },
+  metricLabel: { color: colors.textFaint, fontFamily: fonts.mono, fontSize: 8, letterSpacing: 1.5 },
+  meta: { color: colors.textSecondary, fontFamily: fonts.mono, fontSize: 10, marginTop: 3, lineHeight: 14 },
+  track: {
+    flexDirection: 'row',
+    gap: 10,
     marginHorizontal: 12,
-    marginVertical: 4,
+    paddingVertical: 8,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.line,
   },
-  rowHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  title: { color: colors.text, fontSize: 15, fontWeight: '600', flexShrink: 1 },
-  tag: { fontSize: 10, fontWeight: '800', marginLeft: 8 },
-  body: { color: colors.textSecondary, fontSize: 13, marginTop: 4 },
-  meta: { color: colors.textSecondary, fontSize: 12, marginTop: 4, opacity: 0.8 },
-  feed: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  feedName: { flex: 1 },
-  dot: { fontSize: 12 },
-  toggle: { color: colors.accent, fontSize: 13, fontWeight: '700' },
-  group: { color: colors.textSecondary, fontSize: 11, fontWeight: '400' },
-  url: { color: colors.accent, fontSize: 11, marginTop: 4, opacity: 0.7 },
-  footer: { color: colors.textSecondary, fontSize: 12, textAlign: 'center', padding: 24, opacity: 0.7 },
+  trackIcon: { color: colors.air, fontSize: 16, width: 20, textAlign: 'center', marginTop: 1 },
+  trackBody: { flex: 1 },
+  trackName: { color: colors.air, fontFamily: fonts.display, fontSize: 16 },
+  coords: { color: colors.textFaint, fontFamily: fonts.mono, fontSize: 10, marginTop: 2 },
+  more: { marginHorizontal: 12, paddingVertical: 10, alignItems: 'center' },
+  toggle: { color: colors.accent, fontFamily: fonts.monoBold, fontSize: 11, letterSpacing: 1.5 },
+  emptyRow: { marginHorizontal: 14, paddingVertical: 8 },
+  feed: {
+    marginHorizontal: 12,
+    paddingVertical: 8,
+    paddingHorizontal: 4,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.line,
+  },
+  dot: { fontSize: 9 },
+  feedName: { flex: 1, color: colors.text, fontFamily: fonts.display, fontSize: 15 },
+  feedGroup: { color: colors.textFaint, fontFamily: fonts.mono, fontSize: 9, letterSpacing: 1 },
+  footer: {
+    color: colors.textFaint,
+    fontFamily: fonts.mono,
+    fontSize: 9,
+    lineHeight: 14,
+    letterSpacing: 0.5,
+    padding: 20,
+    textAlign: 'center',
+  },
 });
